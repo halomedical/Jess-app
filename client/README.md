@@ -1,4 +1,4 @@
-# Halo Patient Concierge
+# Noelle App
 
 A secure medical patient management system using Google Drive for storage and AI for clinical documentation.
 

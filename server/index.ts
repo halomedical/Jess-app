@@ -79,7 +79,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
 if (config.isProduction) {
   const staticPath = path.join(__dirname, '../../client/dist');
   app.use(express.static(staticPath));
-  app.get('*', (_req: Request, res: Response) => {
+  app.get('/{*path}', (_req: Request, res: Response) => {
     res.sendFile('index.html', { root: staticPath });
   });
 }

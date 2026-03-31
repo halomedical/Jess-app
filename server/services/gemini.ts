@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { config } from '../config';
+import { soapNotePrompt } from '../utils/prompts';
 
 // Using gemini-flash-latest - this model has free tier access (15 RPM)
 // Alternative: 'gemini-pro-latest' (also has free tier, but slower)
@@ -62,6 +63,11 @@ export async function generateText(prompt: string): Promise<string> {
     model.generateContent(prompt, geminiRequestOptions)
   );
   return result.response.text();
+}
+
+/** Fallback when Halo generate_note is unavailable — same SOAP-style note shape for the client. */
+export async function generateClinicalNoteFromTranscript(transcript: string): Promise<string> {
+  return generateText(soapNotePrompt(transcript));
 }
 
 /**

@@ -99,7 +99,7 @@ export const UniversalScribe: React.FC<Props> = ({ onTranscriptionComplete, onEr
   };
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
+    <div className="fixed z-50 flex flex-col items-end gap-2 bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] sm:bottom-6 sm:right-6">
       {/* Recording indicator pill */}
       {isRecording && (
         <div className="bg-white border border-red-200 shadow-lg rounded-full px-3 py-1.5 flex items-center gap-2 animate-in fade-in">
@@ -126,12 +126,12 @@ export const UniversalScribe: React.FC<Props> = ({ onTranscriptionComplete, onEr
         onClick={isRecording ? stopRecording : startRecording}
         disabled={isProcessing}
         title={isRecording ? 'Stop recording' : isProcessing ? 'Processing...' : 'Launch Scribe'}
-        className={`flex items-center justify-center rounded-full shadow-lg transition-all duration-200 ${
+        className={`flex items-center justify-center rounded-full shadow-lg transition-all duration-200 touch-manipulation min-w-[48px] min-h-[48px] w-14 h-14 sm:w-12 sm:h-12 ${
           isRecording
-            ? 'w-12 h-12 bg-red-500 hover:bg-red-600 text-white ring-4 ring-red-200 animate-pulse'
+            ? 'bg-red-500 hover:bg-red-600 text-white ring-4 ring-red-200 animate-pulse'
             : isProcessing
-              ? 'w-12 h-12 bg-slate-200 text-slate-400 cursor-not-allowed'
-              : 'w-12 h-12 bg-sky-600 hover:bg-sky-700 text-white hover:scale-110 active:scale-95 hover:shadow-xl'
+              ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+              : 'bg-sky-600 hover:bg-sky-700 text-white hover:scale-110 active:scale-95 hover:shadow-xl'
         }`}
       >
         {isProcessing ? (

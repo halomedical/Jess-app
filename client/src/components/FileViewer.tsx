@@ -200,15 +200,15 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/70 backdrop-blur-sm"
+      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-900/70 backdrop-blur-sm p-0 sm:p-4 safe-pad-b"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl w-[95vw] h-[90vh] max-w-6xl flex flex-col overflow-hidden"
+        className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:w-[95vw] h-[min(92dvh,100dvh)] sm:h-[90vh] max-w-6xl max-h-[100dvh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-slate-50 rounded-t-2xl shrink-0">
+        <div className="flex items-center justify-between gap-2 px-3 sm:px-5 py-3 safe-pad-t border-b border-slate-200 bg-slate-50 rounded-t-2xl shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <FileText size={18} className="text-sky-600 shrink-0" />
             <h3 className="font-semibold text-slate-800 truncate">{fileName}</h3>

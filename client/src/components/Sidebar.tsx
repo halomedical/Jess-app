@@ -104,7 +104,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="flex items-center gap-1">
         <button
           onClick={(e) => { e.stopPropagation(); if (onDeletePatient) onDeletePatient(patient); }}
-          className="p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-rose-500/20 hover:text-rose-400 text-slate-500"
+          className="p-2.5 min-w-[44px] min-h-[44px] rounded-lg opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all duration-200 hover:bg-rose-500/20 hover:text-rose-400 text-slate-500 flex items-center justify-center shrink-0"
           title="Delete Folder"
         >
           <Trash2 size={16} />
@@ -117,8 +117,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   );
 
   return (
-    <div className="w-80 bg-slate-900 h-full flex flex-col text-slate-300 border-r border-slate-800 shadow-2xl">
-      <div className="p-6">
+    <div className="w-full min-w-0 md:w-80 md:max-w-[20rem] md:shrink-0 bg-slate-900 h-full min-h-0 flex flex-col text-slate-300 border-r border-slate-800 shadow-2xl">
+      <div className="p-4 sm:p-6 safe-pad-t">
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl overflow-hidden shadow-lg shadow-sky-900/20">
@@ -144,7 +144,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             placeholder="Search name, DOB, or condition..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-slate-800/50 focus:bg-slate-800 text-sm pl-10 pr-4 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-sky-500/50 border border-transparent focus:border-sky-500/30 transition-all placeholder:text-slate-600"
+            className="w-full bg-slate-800/50 focus:bg-slate-800 text-base pl-10 pr-4 py-2.5 min-h-[44px] rounded-xl outline-none focus:ring-2 focus:ring-sky-500/50 border border-transparent focus:border-sky-500/30 transition-all placeholder:text-slate-600"
           />
         </div>
         {isAiSearching && searchTerm.length >= 3 && (
@@ -182,8 +182,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      <div className="p-4 border-t border-slate-800 bg-slate-900/50 backdrop-blur-sm z-10">
-        <button onClick={onCreatePatient} className="w-full bg-sky-600 hover:bg-sky-500 text-white p-3.5 rounded-xl font-bold transition-all shadow-lg shadow-sky-900/20 flex items-center justify-center gap-2 mb-3 active:scale-[0.98]">
+      <div className="p-4 border-t border-slate-800 bg-slate-900/50 backdrop-blur-sm z-10 safe-pad-b">
+        <button onClick={onCreatePatient} className="w-full bg-sky-600 hover:bg-sky-500 text-white min-h-[48px] p-3.5 rounded-xl font-bold transition-all shadow-lg shadow-sky-900/20 flex items-center justify-center gap-2 mb-3 active:scale-[0.98]">
           <Plus size={20} /> New Patient Folder
         </button>
         <button onClick={onLogout} className="w-full flex items-center justify-center gap-2 text-xs font-medium text-slate-500 hover:text-slate-300 py-2 transition-colors">

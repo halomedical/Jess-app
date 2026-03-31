@@ -4,6 +4,7 @@
  */
 
 import { config } from '../config';
+import { generateClinicalNoteFromTranscript } from './gemini';
 
 const BASE = config.haloApiBaseUrl;
 
@@ -165,18 +166,35 @@ export interface GenerateNoteParams {
 export async function generateNote(params: GenerateNoteParams): Promise<HaloNote[] | Buffer> {
   const { return_type } = params;
 
-  const res = await fetch(`${BASE}/generate_note`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      user_id: params.user_id,
-      template_id: params.template_id,
-      text: params.text,
-      return_type,
-    }),
-  });
+  async function noteFallback(reason: string): Promise<HaloNote[]> {
+    console.warn(`[Halo] generate_note ${reason}; using Gemini clinical note fallback.`);
+    const content = await generateClinicalNoteFromTranscript(params.text);
+    return normalizeNotesResponse(content, params.template_id);
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/generate_note`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: params.user_id,
+        template_id: params.template_id,
+        text: params.text,
+        return_type,
+      }),
+    });
+  } catch (e) {
+    if (return_type === 'note') {
+      return noteFallback(`network error: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    throw e instanceof Error ? e : new Error(String(e));
+  }
 
   if (!res.ok) {
+    if (return_type === 'note' && (res.status === 502 || res.status >= 500)) {
+      return noteFallback(`HTTP ${res.status}`);
+    }
     if (res.status === 400) throw new Error('Invalid request to Halo note generation.');
     if (res.status === 502) throw new Error('Halo note service unavailable. Please try again.');
     throw new Error(`Halo generate_note error: ${res.status}`);

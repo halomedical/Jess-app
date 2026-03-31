@@ -171,7 +171,15 @@ router.post('/patients', async (req: Request, res: Response) => {
       }),
     });
 
-    const folder = (await createRes.json()) as { id: string };
+    const body = (await createRes.json()) as { id?: string; error?: { message: string } };
+    if (!createRes.ok || !body.id) {
+      const msg = body.error?.message || `Drive API error (${createRes.status})`;
+      console.error('Drive create folder failed:', createRes.status, body);
+      res.status(createRes.ok ? 500 : createRes.status).json({ error: msg });
+      return;
+    }
+
+    const folder = body;
     res.json({
       id: folder.id,
       name,

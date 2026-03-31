@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { PatientWorkspace } from './pages/PatientWorkspace';
+import { RecordingSessionsProvider } from './features/scribe/RecordingSessionsContext';
+import { MultiSessionScribe } from './features/scribe/MultiSessionScribe';
 import { Toast } from './components/Toast';
 import { SettingsModal } from './components/SettingsModal';
 import { checkAuth, getLoginUrl, logout, fetchAllPatients, createPatient, deletePatient, loadSettings, saveSettings, ApiError } from './services/api';
 import type { Patient, UserSettings } from '../../shared/types';
+import { DEFAULT_HALO_TEMPLATE_ID } from '../../shared/haloTemplates';
 import { LogIn, Loader, X, UserPlus, Calendar, Users, AlertTriangle, Trash2 } from 'lucide-react';
 
 export const App = () => {
@@ -139,6 +142,10 @@ export const App = () => {
   const submitCreatePatient = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPatientName.trim()) return;
+    if (!newPatientDob) {
+      showToast('Please select a date of birth.', 'error');
+      return;
+    }
 
     setLoading(true);
     try {
@@ -186,7 +193,7 @@ export const App = () => {
 
   if (!isReady) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-slate-50">
+      <div className="flex min-h-[100dvh] h-[100dvh] w-full items-center justify-center bg-slate-50 safe-pad-t safe-pad-b safe-pad-x">
         <div className="flex flex-col items-center gap-4">
           <Loader className="animate-spin text-sky-600" size={32} />
           <p className="text-sm text-slate-400 font-medium">Loading HALO...</p>
@@ -197,8 +204,8 @@ export const App = () => {
 
   if (!isSignedIn) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-white">
-        <div className="max-w-sm w-full text-center px-6">
+      <div className="flex min-h-[100dvh] h-[100dvh] w-full items-center justify-center bg-white safe-pad-t safe-pad-b safe-pad-x overflow-y-auto">
+        <div className="max-w-sm w-full text-center px-6 py-4">
           <img
             src="/halo-medical-logo.png"
             alt="HALO Medical"
@@ -222,8 +229,9 @@ export const App = () => {
   const activePatient = patients.find(p => p.id === selectedPatientId);
 
   return (
-    <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden relative">
-      <div className={`${selectedPatientId ? 'hidden md:flex' : 'flex'} h-full shrink-0 z-20`}>
+    <RecordingSessionsProvider>
+    <div className="flex min-h-[100dvh] h-[100dvh] max-h-[100dvh] w-full bg-slate-50 font-sans text-slate-900 overflow-hidden relative">
+      <div className={`${selectedPatientId ? 'hidden md:flex' : 'flex'} h-full min-h-0 w-full md:w-auto shrink-0 z-20`}>
         <Sidebar
           patients={patients}
           selectedPatientId={selectedPatientId}
@@ -238,14 +246,14 @@ export const App = () => {
         />
       </div>
 
-      <div className={`flex-1 flex flex-col h-screen relative ${!selectedPatientId ? 'hidden md:flex' : 'flex'}`}>
+      <div className={`flex-1 flex flex-col min-h-0 h-full relative ${!selectedPatientId ? 'hidden md:flex' : 'flex'}`}>
         {activePatient ? (
           <PatientWorkspace
             patient={activePatient}
             onBack={() => selectPatient(null)}
             onDataChange={refreshPatients}
             onToast={showToast}
-            templateId={userSettings?.templateId || 'clinical_note'}
+            templateId={userSettings?.templateId || DEFAULT_HALO_TEMPLATE_ID}
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-slate-300 relative overflow-hidden">
@@ -293,8 +301,8 @@ export const App = () => {
 
       {/* CREATE PATIENT MODAL */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 m-4">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4 safe-pad-b">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-md max-h-[90dvh] overflow-y-auto p-6 sm:m-4">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><UserPlus className="text-sky-600" size={24}/> New Patient Folder</h2>
               <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition"><X size={20} /></button>
@@ -303,12 +311,13 @@ export const App = () => {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-semibold text-slate-600 mb-1.5">Full Name</label>
-                  <input autoFocus type="text" placeholder="e.g. Sarah Connor" value={newPatientName} onChange={(e) => setNewPatientName(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 outline-none transition" />
+                  <input autoFocus type="text" placeholder="e.g. Sarah Connor" value={newPatientName} onChange={(e) => setNewPatientName(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 outline-none transition" />
                 </div>
                 <div className="flex gap-4">
-                  <div className="flex-1">
-                    <label className="block text-sm font-semibold text-slate-600 mb-1.5 flex items-center gap-1"><Calendar size={14} /> Date of Birth</label>
-                    <input type="date" value={newPatientDob} onChange={(e) => setNewPatientDob(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 outline-none transition" />
+                  <div className="flex-1 min-w-0">
+                    <label className="block text-sm font-semibold text-slate-600 mb-1.5 flex items-center gap-1"><Calendar size={14} /> Date of Birth <span className="text-rose-500">*</span></label>
+                    <input type="date" value={newPatientDob} onChange={(e) => setNewPatientDob(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 outline-none transition" />
+                    <p className="text-xs text-slate-400 mt-1">Required — pick a date or creation will fail.</p>
                   </div>
                   <div className="w-1/3">
                     <label className="block text-sm font-semibold text-slate-600 mb-1.5 flex items-center gap-1"><Users size={14} /> Sex</label>
@@ -320,7 +329,7 @@ export const App = () => {
                 </div>
                 <div className="pt-2 flex gap-3">
                   <button type="button" onClick={() => setShowCreateModal(false)} className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition">Cancel</button>
-                  <button type="submit" disabled={!newPatientName.trim() || loading} className="flex-1 bg-sky-600 hover:bg-sky-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-sky-600/20 disabled:opacity-50 disabled:shadow-none transition flex items-center justify-center gap-2">
+                  <button type="submit" disabled={!newPatientName.trim() || !newPatientDob || loading} className="flex-1 bg-sky-600 hover:bg-sky-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-sky-600/20 disabled:opacity-50 disabled:shadow-none transition flex items-center justify-center gap-2">
                     {loading ? <Loader className="animate-spin" size={18}/> : 'Create Folder'}
                   </button>
                 </div>
@@ -332,8 +341,8 @@ export const App = () => {
 
       {/* DELETE CONFIRMATION MODAL */}
       {patientToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 m-4 border-2 border-rose-100">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4 safe-pad-b">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-md max-h-[90dvh] overflow-y-auto p-6 sm:m-4 border-2 border-rose-100">
             <div className="flex flex-col items-center text-center mb-6">
               <div className="w-16 h-16 bg-rose-50 rounded-full flex items-center justify-center mb-4 text-rose-500">
                 <AlertTriangle size={32} />
@@ -354,6 +363,14 @@ export const App = () => {
           </div>
         </div>
       )}
+
+      <MultiSessionScribe
+        currentPatientId={selectedPatientId}
+        currentPatientName={activePatient?.name ?? null}
+        onError={(msg) => showToast(msg, 'error')}
+        onTranscriptionQueued={() => showToast('Transcription ready in Editor & Scribe.', 'success')}
+      />
     </div>
+    </RecordingSessionsProvider>
   );
 };

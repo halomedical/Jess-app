@@ -3,3 +3,5 @@ dist/
 .env
 client/node_modules/
 client/dist/
+.DS_Store
+client_secret_*.json

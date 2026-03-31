@@ -13,6 +13,10 @@ import { startScheduler } from './jobs/scheduler';
 
 const app = express();
 
+if (config.isProduction) {
+  app.set('trust proxy', 1);
+}
+
 // --- Global Rate Limiter ---
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes

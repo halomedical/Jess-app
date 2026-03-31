@@ -1,5 +1,5 @@
 {
-  "name": "noelle-app",
+  "name": "jess-app",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -11,6 +11,7 @@
     "dev:client": "cd client && npm run dev",
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "build": "npm --prefix client install && npm --prefix client run build && tsc",
+    "heroku-postbuild": "npm run build",
     "build:server": "tsc",
     "build:client": "npm --prefix client install && npm --prefix client run build",
     "start": "node dist/server/index.js"

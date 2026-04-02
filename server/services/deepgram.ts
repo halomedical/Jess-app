@@ -22,17 +22,19 @@ export function isDeepgramAvailable(): boolean {
  * Returns the raw transcript text, or empty string if no speech detected.
  */
 export async function transcribeWithDeepgram(audioBuffer: Buffer, mimeType: string): Promise<string> {
-  const dgResponse = await fetch(
-    'https://api.deepgram.com/v1/listen?model=nova-3-medical&smart_format=true&punctuate=true',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Token ${config.deepgramApiKey}`,
-        'Content-Type': mimeType,
-      },
-      body: audioBuffer,
-    }
-  );
+  const qs = new URLSearchParams({
+    model: config.deepgramModel,
+    smart_format: 'true',
+    punctuate: 'true',
+  });
+  const dgResponse = await fetch(`https://api.deepgram.com/v1/listen?${qs.toString()}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Token ${config.deepgramApiKey}`,
+      'Content-Type': mimeType,
+    },
+    body: audioBuffer,
+  });
 
   if (!dgResponse.ok) {
     const errText = await dgResponse.text();

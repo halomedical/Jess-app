@@ -17,13 +17,13 @@ const ICONS = {
 const STYLES = {
   success: 'bg-emerald-50 border-emerald-200 text-emerald-800',
   error: 'bg-rose-50 border-rose-200 text-rose-800',
-  info: 'bg-blue-50 border-blue-200 text-blue-800',
+  info: 'bg-teal-50 border-teal-200 text-teal-900',
 };
 
 const ICON_STYLES = {
   success: 'text-emerald-500',
   error: 'text-rose-500',
-  info: 'text-blue-500',
+  info: 'text-teal-600',
 };
 
 export const Toast: React.FC<Props> = ({ message, type, onClose, duration = 4000 }) => {

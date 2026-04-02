@@ -89,7 +89,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               type="button"
               onClick={() => setViewMode('preview')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                viewMode === 'preview' ? 'bg-sky-100 text-sky-800' : 'text-slate-600 hover:bg-slate-50'
+                viewMode === 'preview' ? 'bg-teal-100 text-teal-800' : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
               <Eye size={14} /> Preview
@@ -98,7 +98,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               type="button"
               onClick={() => setViewMode('edit')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                viewMode === 'edit' ? 'bg-sky-100 text-sky-800' : 'text-slate-600 hover:bg-slate-50'
+                viewMode === 'edit' ? 'bg-teal-100 text-teal-800' : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
               <Pencil size={14} /> Edit
@@ -113,7 +113,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               type="button"
               onClick={() => onActiveIndexChange(i)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                i === activeIndex ? 'bg-sky-600 text-white shadow-sm' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                i === activeIndex ? 'bg-teal-600 text-white shadow-sm' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
               }`}
             >
               {note.title || `Note ${i + 1}`}
@@ -159,7 +159,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             value={activeNote.title}
             onChange={(e) => onNoteChange(activeIndex, { title: e.target.value })}
             placeholder="Note title"
-            className="w-full px-4 py-2 border-b border-slate-200 text-sm font-semibold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-sky-100"
+            className="w-full px-4 py-2 border-b border-slate-200 text-sm font-semibold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-100"
           />
           <textarea
             value={activeNote.content}
@@ -176,7 +176,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             type="button"
             onClick={() => onSaveAsDocx(activeIndex)}
             disabled={busy || !activeNote.content.trim()}
-            className="flex items-center gap-2 bg-sky-600 text-white px-4 py-2 rounded-lg hover:bg-sky-700 disabled:opacity-50 font-medium transition-all shadow-sm text-sm"
+            className="flex items-center gap-2 bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 disabled:opacity-50 font-medium transition-all shadow-sm text-sm"
           >
             {savingNoteIndex === activeIndex ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
             Save as DOCX
@@ -194,7 +194,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               type="button"
               onClick={onSaveAll}
               disabled={busy}
-              className="flex items-center gap-2 bg-sky-700 text-white px-4 py-2 rounded-lg hover:bg-sky-800 disabled:opacity-50 font-medium transition-all shadow-sm text-sm"
+              className="flex items-center gap-2 bg-teal-700 text-white px-4 py-2 rounded-lg hover:bg-teal-800 disabled:opacity-50 font-medium transition-all shadow-sm text-sm"
             >
               {status === AppStatus.SAVING ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               Save All

@@ -70,6 +70,28 @@ export function soapNotePrompt(transcript: string, customTemplate?: string): str
   `;
 }
 
+/** Gemini fallback when Halo/Python generate_note fails — matches app template_id keys. */
+export function haloTemplateFallbackPrompt(transcript: string, templateId: string, structureGuide: string): string {
+  return `
+You are a medical scribe. Convert the dictation into a clinical document that strictly follows the section structure below.
+Use Markdown: ## for each main section heading, **bold** for inline labels where helpful.
+Only include content supported by the dictation; use "N/A" or "Not discussed" for empty sections.
+Do not invent clinical facts.
+
+Template key (for context): ${templateId}
+
+${structureGuide}
+
+Dictation:
+"${transcript}"
+`;
+}
+
+/** Short prompt for /transcribe only — faster than SOAP-style instructions on Gemini. */
+export function fastTranscriptionPrompt(): string {
+  return 'Transcribe the audio verbatim into plain clinical English. Output only the spoken words with normal punctuation. No headings, no labels, no SOAP, no commentary.';
+}
+
 export function geminiTranscriptionPrompt(customTemplate?: string): string {
   if (customTemplate) {
     return `You are a medical scribe. Transcribe this audio into a clinical note using the EXACT template/format below. Follow the template's structure, headings, and sections precisely. Use Markdown formatting (## for headings, **bold** for labels). Fill in each section with the relevant information. If a section has no data, write "N/A".

@@ -1,7 +1,32 @@
+# Node.js modules
 node_modules/
+
+# Build output directories
 dist/
-.env
-client/node_modules/
 client/dist/
+
+# Environment variables file
+.env
+
+# Client-specific files
+client/node_modules/
+
+# macOS system files
 .DS_Store
+
+# Secret and credentials files (e.g., API keys, Firebase credentials)
 client_secret_*.json
+*.key
+*.pem
+*.crt
+
+# Log files
+*.log
+
+# Temporary files from editors/IDEs
+.vscode/
+.idea/
+*.swp
+
+# Other potential sensitive config files
+config.json

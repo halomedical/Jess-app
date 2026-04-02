@@ -10,6 +10,7 @@ import {
   searchPrompt,
   chatSystemPrompt,
   geminiTranscriptionPrompt,
+  fastTranscriptionPrompt,
 } from '../utils/prompts';
 
 const router = Router();
@@ -305,11 +306,7 @@ router.post('/transcribe', async (req: Request, res: Response) => {
 
     if (!isDeepgramAvailable()) {
       console.log('Deepgram key not set, falling back to Gemini for transcription');
-      const transcript = await transcribeAudio(
-        geminiTranscriptionPrompt(undefined),
-        cleanBase64,
-        audioMime
-      );
+      const transcript = await transcribeAudio(fastTranscriptionPrompt(), cleanBase64, audioMime);
       res.json({ transcript: transcript || '', rawTranscript: transcript || '' });
       return;
     }

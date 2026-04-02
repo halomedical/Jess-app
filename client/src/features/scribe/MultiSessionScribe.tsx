@@ -122,10 +122,10 @@ export const MultiSessionScribe: React.FC<Props> = ({
       {/* Compact indicators above FAB */}
       <div className="fixed z-50 flex flex-col items-end gap-2 bottom-[max(5.5rem,calc(1.5rem+env(safe-area-inset-bottom)))] right-[max(1rem,env(safe-area-inset-right))] sm:bottom-[5.25rem] sm:right-6 max-w-[min(100vw-1rem,18rem)]">
         {processingPatientId && (
-          <div className="bg-white border border-sky-200 shadow-lg rounded-2xl px-3 py-2 text-right">
+          <div className="bg-white border border-teal-200 shadow-lg rounded-2xl px-3 py-2 text-right">
             <div className="flex items-center gap-2 justify-end">
-              <Wand2 className="w-3.5 h-3.5 text-sky-500 animate-spin shrink-0" />
-              <span className="text-[11px] font-bold text-sky-800">Transcribing…</span>
+              <Wand2 className="w-3.5 h-3.5 text-teal-500 animate-spin shrink-0" />
+              <span className="text-[11px] font-bold text-teal-800">Transcribing…</span>
             </div>
             {longWait && (
               <p className="text-[9px] text-slate-500 mt-1">May take 15–60 s.</p>
@@ -172,7 +172,7 @@ export const MultiSessionScribe: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={handleMainFab}
-                className="touch-manipulation bg-sky-100 border border-sky-200 text-sky-900 text-[11px] font-bold px-3 py-2 rounded-xl shadow-sm flex items-center gap-1"
+                className="touch-manipulation bg-teal-100 border border-teal-200 text-teal-900 text-[11px] font-bold px-3 py-2 rounded-xl shadow-sm flex items-center gap-1"
               >
                 <Mic className="w-3.5 h-3.5" /> Resume dictation
               </button>
@@ -180,7 +180,7 @@ export const MultiSessionScribe: React.FC<Props> = ({
                 type="button"
                 onClick={handleFinishCurrent}
                 disabled={!!processingPatientId}
-                className="touch-manipulation bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white text-[11px] font-bold px-3 py-2 rounded-xl shadow-md flex items-center gap-1"
+                className="touch-manipulation bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-[11px] font-bold px-3 py-2 rounded-xl shadow-md flex items-center gap-1"
               >
                 <Check className="w-3.5 h-3.5" /> Finish &amp; transcribe
               </button>
@@ -192,10 +192,10 @@ export const MultiSessionScribe: React.FC<Props> = ({
           onClick={() => (panelOpen ? closePanel() : openPanel())}
           className="touch-manipulation bg-white border border-slate-200 text-slate-700 text-[11px] font-bold px-3 py-2 rounded-xl shadow-md flex items-center gap-1.5"
         >
-          <ListMusic className="w-4 h-4 text-sky-600" />
+          <ListMusic className="w-4 h-4 text-teal-600" />
           Sessions
           {activeCount > 0 && (
-            <span className="bg-sky-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
+            <span className="bg-teal-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
               {activeCount}
             </span>
           )}
@@ -236,7 +236,7 @@ export const MultiSessionScribe: React.FC<Props> = ({
               ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
               : fabDisabled
                 ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                : 'bg-sky-600 hover:bg-sky-700 text-white hover:scale-105 active:scale-95'
+                : 'bg-teal-600 hover:bg-teal-700 text-white hover:scale-105 active:scale-95'
           }`}
         >
           {fabDisabled ? (
@@ -283,7 +283,7 @@ export const MultiSessionScribe: React.FC<Props> = ({
                   <div
                     key={s.patientId}
                     className={`rounded-xl border p-3 ${
-                      s.patientId === currentPatientId ? 'border-sky-300 bg-sky-50/50' : 'border-slate-200 bg-white'
+                      s.patientId === currentPatientId ? 'border-teal-300 bg-teal-50/50' : 'border-slate-200 bg-white'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -304,7 +304,7 @@ export const MultiSessionScribe: React.FC<Props> = ({
                                 onError('Could not resume.');
                               }
                             }}
-                            className="text-[10px] font-bold uppercase px-2 py-1.5 rounded-lg bg-sky-600 text-white"
+                            className="text-[10px] font-bold uppercase px-2 py-1.5 rounded-lg bg-teal-600 text-white"
                           >
                             Resume
                           </button>

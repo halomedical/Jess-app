@@ -7,12 +7,12 @@ import {
   fetchFiles, fetchFilesFirstPage, fetchFilesPage, fetchFolderContents, uploadFile, updatePatient,
   updateFileMetadata, generatePatientSummary, analyzeAndRenameImage,
   extractLabAlerts, deleteFile, createFolder, askHaloStream,
-  generateNotePreview, saveNoteAsDocx,
+  generateNotePreview, saveNoteAsDocx, sendClinicalNoteEmail,
 } from '../services/api';
 import {
   Upload, Calendar, Clock, CheckCircle2, ChevronLeft, Loader2,
   CloudUpload, Pencil, X, Trash2, FolderOpen, MessageCircle,
-  FolderPlus, ChevronRight,
+  FolderPlus, ChevronRight, Mail,
 } from 'lucide-react';
 import { SmartSummary } from '../features/smart-summary/SmartSummary';
 import { LabAlerts } from '../features/lab-alerts/LabAlerts';
@@ -28,10 +28,49 @@ interface Props {
   onBack: () => void;
   onDataChange: () => void;
   onToast: (message: string, type: 'success' | 'error' | 'info') => void;
+  userEmail?: string;
   templateId?: string;
 }
 
-export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChange, onToast, templateId: propTemplateId }) => {
+interface PatientEditorDraft {
+  pendingTranscript: string | null;
+  notes: HaloNote[];
+  activeNoteIndex: number;
+  selectedTemplatesForGenerate: string[];
+  templateId: string;
+}
+
+const DRAFT_STORAGE_VERSION = 1 as const;
+const DRAFT_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+
+function draftStorageKey(userEmail: string | undefined, patientId: string): string {
+  const who = (userEmail || 'anon').toLowerCase().trim() || 'anon';
+  return `halo_editorScribeDraft_v${DRAFT_STORAGE_VERSION}:${who}:${patientId}`;
+}
+
+function safeParseDraft(raw: string | null): { savedAt: number; draft: PatientEditorDraft } | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { savedAt?: number; draft?: PatientEditorDraft };
+    if (!parsed?.draft) return null;
+    const savedAt = typeof parsed.savedAt === 'number' ? parsed.savedAt : Date.now();
+    const d = parsed.draft;
+    return {
+      savedAt,
+      draft: {
+        pendingTranscript: typeof d.pendingTranscript === 'string' ? d.pendingTranscript : null,
+        notes: Array.isArray(d.notes) ? d.notes : [],
+        activeNoteIndex: typeof d.activeNoteIndex === 'number' ? d.activeNoteIndex : 0,
+        selectedTemplatesForGenerate: Array.isArray(d.selectedTemplatesForGenerate) ? d.selectedTemplatesForGenerate : [DEFAULT_HALO_TEMPLATE_ID],
+        templateId: typeof d.templateId === 'string' ? d.templateId : DEFAULT_HALO_TEMPLATE_ID,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChange, onToast, userEmail, templateId: propTemplateId }) => {
   const scribeSessions = useRecordingSessions();
   const [files, setFiles] = useState<DriveFile[]>([]);
   const [summary, setSummary] = useState<string[]>([]);
@@ -66,6 +105,28 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
 
   const patientRef = useRef(patient);
   patientRef.current = patient;
+  const patientEditorDraftsRef = useRef<Record<string, PatientEditorDraft>>({});
+  const activeDraftPatientIdRef = useRef(patient.id);
+
+  const persistDraftToStorage = useCallback((patientId: string, draft: PatientEditorDraft) => {
+    try {
+      const key = draftStorageKey(userEmail, patientId);
+      // Basic guard against runaway storage size
+      const clipped: PatientEditorDraft = {
+        ...draft,
+        pendingTranscript: draft.pendingTranscript && draft.pendingTranscript.length > 200_000
+          ? draft.pendingTranscript.slice(-200_000)
+          : draft.pendingTranscript,
+        notes: draft.notes.map(n => ({
+          ...n,
+          content: n.content && n.content.length > 200_000 ? n.content.slice(-200_000) : n.content,
+        })),
+      };
+      localStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), draft: clipped }));
+    } catch {
+      // ignore storage failures (quota/private mode)
+    }
+  }, [userEmail]);
 
   // File viewer state
   const [viewingFile, setViewingFile] = useState<DriveFile | null>(null);
@@ -82,6 +143,12 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   // Create folder state
   const [showCreateFolderModal, setShowCreateFolderModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+
+  // Email note modal
+  const [showEmailNoteModal, setShowEmailNoteModal] = useState(false);
+  const [emailNoteIndex, setEmailNoteIndex] = useState(0);
+  const [emailNoteRecipient, setEmailNoteRecipient] = useState("");
+  const [emailNoteSending, setEmailNoteSending] = useState(false);
 
   // Upload destination picker state
   const [showUploadPicker, setShowUploadPicker] = useState(false);
@@ -330,6 +397,23 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     setTemplateId(propTemplateId || DEFAULT_HALO_TEMPLATE_ID);
   }, [propTemplateId]);
 
+  useEffect(() => {
+    patientEditorDraftsRef.current[activeDraftPatientIdRef.current] = {
+      pendingTranscript,
+      notes,
+      activeNoteIndex,
+      selectedTemplatesForGenerate,
+      templateId,
+    };
+    persistDraftToStorage(activeDraftPatientIdRef.current, {
+      pendingTranscript,
+      notes,
+      activeNoteIndex,
+      selectedTemplatesForGenerate,
+      templateId,
+    });
+  }, [pendingTranscript, notes, activeNoteIndex, selectedTemplatesForGenerate, templateId]);
+
   const handleNoteChange = useCallback((noteIndex: number, updates: { title?: string; content?: string }) => {
     setNotes(prev => prev.map((n, i) => i !== noteIndex ? n : {
       ...n,
@@ -389,16 +473,55 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     setStatus(AppStatus.IDLE);
   }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast]);
 
-  const handleEmail = useCallback((_noteIndex: number) => {
-    onToast('Email not implemented yet.', 'info');
-  }, [onToast]);
+  const handleEmail = useCallback((noteIndex: number) => {
+    setEmailNoteIndex(noteIndex);
+    setEmailNoteRecipient("");
+    setShowEmailNoteModal(true);
+  }, []);
+
+  const handleSendNoteEmail = useCallback(async () => {
+    const note = notes[emailNoteIndex];
+    const to = emailNoteRecipient.trim();
+    if (!note?.content.trim()) {
+      onToast('Nothing to send.', 'info');
+      return;
+    }
+    if (!to) {
+      onToast('Enter a recipient email address.', 'info');
+      return;
+    }
+    setEmailNoteSending(true);
+    try {
+      await sendClinicalNoteEmail({
+        to,
+        subject: `Clinical note — ${patient.name} — ${note.title || 'Note'}`,
+        text: note.content,
+        patientName: patient.name,
+      });
+      setShowEmailNoteModal(false);
+      onToast('Email sent.', 'success');
+    } catch (err) {
+      onToast(getErrorMessage(err), 'error');
+    }
+    setEmailNoteSending(false);
+  }, [emailNoteIndex, emailNoteRecipient, notes, patient.name, onToast]);
 
   useEffect(() => {
     const pid = patient.id;
-    setPendingTranscript(null);
-    setNotes([]);
-    setActiveNoteIndex(0);
-    setSelectedTemplatesForGenerate([DEFAULT_HALO_TEMPLATE_ID]);
+    const memoryDraft = patientEditorDraftsRef.current[pid];
+    const stored = safeParseDraft(localStorage.getItem(draftStorageKey(userEmail, pid)));
+    const draft =
+      stored && (Date.now() - stored.savedAt) <= DRAFT_TTL_MS
+        ? stored.draft
+        : memoryDraft;
+    activeDraftPatientIdRef.current = pid;
+    setPendingTranscript(draft?.pendingTranscript ?? null);
+    setNotes(draft?.notes ?? []);
+    setActiveNoteIndex(draft ? Math.min(draft.activeNoteIndex, Math.max((draft.notes?.length ?? 1) - 1, 0)) : 0);
+    setSelectedTemplatesForGenerate(
+      draft?.selectedTemplatesForGenerate?.length ? draft.selectedTemplatesForGenerate : [DEFAULT_HALO_TEMPLATE_ID]
+    );
+    setTemplateId(draft?.templateId ?? (propTemplateId || DEFAULT_HALO_TEMPLATE_ID));
 
     const applyTranscript = (text: string) => {
       if (!text.trim()) {
@@ -406,7 +529,13 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         return;
       }
       if (patientRef.current.id !== pid) return;
-      setPendingTranscript(text);
+      setPendingTranscript(prev => {
+        const trimmedPrev = prev?.trim();
+        const trimmedText = text.trim();
+        if (!trimmedPrev) return trimmedText;
+        if (trimmedPrev === trimmedText) return prev;
+        return `${trimmedPrev}\n\n${trimmedText}`;
+      });
       setSelectedTemplatesForGenerate([DEFAULT_HALO_TEMPLATE_ID]);
       setActiveTab('notes');
     };
@@ -415,7 +544,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     const backlog = scribeSessions.consumeTranscriptionForPatient(pid);
     if (backlog != null) applyTranscript(backlog);
     return unsub;
-  }, [patient.id, scribeSessions.subscribeTranscription, scribeSessions.consumeTranscriptionForPatient, onToast]);
+  }, [patient.id, userEmail, propTemplateId, scribeSessions.subscribeTranscription, scribeSessions.consumeTranscriptionForPatient, onToast]);
 
   const toggleTemplateForGenerate = useCallback((id: string) => {
     setSelectedTemplatesForGenerate(prev =>
@@ -610,13 +739,13 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       {/* Header */}
       <div className="border-b border-slate-200 px-4 md:px-8 py-4 safe-pad-t flex flex-col md:flex-row md:justify-between md:items-start bg-white shadow-sm z-10 gap-4 shrink-0">
         <div className="flex items-start gap-3">
-          <button onClick={onBack} className="md:hidden mt-1 p-2 -ml-2 text-slate-500 hover:text-sky-600 rounded-full">
+          <button onClick={onBack} className="md:hidden mt-1 p-2 -ml-2 text-slate-500 hover:text-teal-600 rounded-full">
             <ChevronLeft className="w-6 h-6" />
           </button>
           <div className="group relative">
             <div className="flex items-center gap-2">
               <h1 className="text-2xl md:text-3xl font-bold text-slate-800 tracking-tight leading-tight">{patient.name}</h1>
-              <button onClick={startEditPatient} className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 text-slate-400 hover:text-sky-600 hover:bg-slate-100 rounded-full">
+              <button onClick={startEditPatient} className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 text-slate-400 hover:text-teal-600 hover:bg-slate-100 rounded-full">
                 <Pencil size={16} />
               </button>
             </div>
@@ -631,18 +760,18 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         <div className="flex flex-col items-center md:items-end gap-2 w-full md:w-auto">
           {status === AppStatus.UPLOADING ? (
             <div className="w-48">
-              <div className="flex justify-between text-xs font-semibold text-sky-700 mb-1">
+              <div className="flex justify-between text-xs font-semibold text-teal-700 mb-1">
                 <span>Uploading...</span><span>{uploadProgress}%</span>
               </div>
               <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                <div className="bg-sky-500 h-2.5 rounded-full transition-all duration-300" style={{ width: `${uploadProgress}%` }}></div>
+                <div className="bg-teal-500 h-2.5 rounded-full transition-all duration-300" style={{ width: `${uploadProgress}%` }}></div>
               </div>
             </div>
           ) : (
             <>
               <button
                 onClick={openUploadPicker}
-                className="w-full md:w-auto flex justify-center items-center gap-2 bg-sky-600 hover:bg-sky-700 text-white px-5 py-2.5 rounded-lg cursor-pointer transition-all shadow-md shadow-sky-600/20 text-sm font-semibold"
+                className="w-full md:w-auto flex justify-center items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-5 py-2.5 rounded-lg cursor-pointer transition-all shadow-md shadow-teal-600/20 text-sm font-semibold"
               >
                 <Upload className="w-4 h-4" /> Upload File
               </button>
@@ -656,7 +785,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             </>
           )}
           {uploadMessage && status !== AppStatus.UPLOADING && (
-            <div className="w-full md:w-auto flex items-center gap-2 text-xs font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-3 py-1.5 rounded-md">
+            <div className="w-full md:w-auto flex items-center gap-2 text-xs font-semibold text-teal-700 bg-teal-50 border border-teal-200 px-3 py-1.5 rounded-md">
               <CheckCircle2 className="w-3.5 h-3.5" /> {uploadMessage}
             </div>
           )}
@@ -684,7 +813,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
 
           {hasAiContent && !showAiPanel && (
             <div className="mb-4">
-              <button onClick={() => setShowAiPanel(true)} className="text-xs font-medium text-sky-600 hover:text-sky-700 flex items-center gap-1.5 transition-colors px-3 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 border border-sky-100">
+              <button onClick={() => setShowAiPanel(true)} className="text-xs font-medium text-teal-600 hover:text-teal-700 flex items-center gap-1.5 transition-colors px-3 py-1.5 rounded-lg bg-teal-50 hover:bg-teal-100 border border-teal-100">
                 Show HALO AI Insights
               </button>
             </div>
@@ -692,9 +821,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
 
           {/* Tabs */}
           <div className="flex gap-6 md:gap-8 border-b border-slate-200 mb-6 overflow-x-auto">
-            <button onClick={() => setActiveTab('overview')} className={`pb-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'overview' ? 'border-sky-600 text-sky-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Active Workspace</button>
-            <button onClick={() => setActiveTab('notes')} className={`pb-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'notes' ? 'border-sky-600 text-sky-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Editor &amp; Scribe</button>
-            <button onClick={() => setActiveTab('chat')} className={`pb-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'chat' ? 'border-sky-600 text-sky-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+            <button onClick={() => setActiveTab('overview')} className={`pb-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'overview' ? 'border-teal-600 text-teal-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Active Workspace</button>
+            <button onClick={() => setActiveTab('notes')} className={`pb-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'notes' ? 'border-teal-600 text-teal-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Editor &amp; Scribe</button>
+            <button onClick={() => setActiveTab('chat')} className={`pb-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'chat' ? 'border-teal-600 text-teal-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
               <MessageCircle size={14} /> Ask HALO
             </button>
           </div>
@@ -733,7 +862,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                             onClick={() => toggleTemplateForGenerate(t.id)}
                             className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all border shadow-sm whitespace-nowrap ${
                               selected
-                                ? 'bg-sky-50 border-sky-300 text-sky-800 ring-2 ring-sky-200'
+                                ? 'bg-teal-50 border-teal-300 text-teal-800 ring-2 ring-teal-200'
                                 : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50'
                             }`}
                           >
@@ -759,7 +888,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                       type="button"
                       onClick={handleGenerateFromTemplates}
                       disabled={selectedTemplatesForGenerate.length === 0 || status === AppStatus.LOADING}
-                      className="px-4 py-2 rounded-xl text-sm font-bold bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm border border-sky-600"
+                      className="px-4 py-2 rounded-xl text-sm font-bold bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm border border-teal-600"
                     >
                       {status === AppStatus.LOADING
                         ? 'Generating…'
@@ -828,22 +957,22 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-slate-600 mb-1.5">Full Name</label>
-                <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 outline-none transition" />
+                <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
               </div>
               <div>
                 <label className="block text-sm font-semibold text-slate-600 mb-1.5">Date of Birth</label>
-                <input type="date" value={editDob} onChange={e => setEditDob(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 outline-none transition" />
+                <input type="date" value={editDob} onChange={e => setEditDob(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
               </div>
               <div>
                 <label className="block text-sm font-semibold text-slate-600 mb-1.5">Sex</label>
                 <div className="flex bg-slate-100 p-1 rounded-xl">
-                  <button onClick={() => setEditSex('M')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${editSex === 'M' ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>M</button>
-                  <button onClick={() => setEditSex('F')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${editSex === 'F' ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>F</button>
+                  <button onClick={() => setEditSex('M')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${editSex === 'M' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>M</button>
+                  <button onClick={() => setEditSex('F')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${editSex === 'F' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>F</button>
                 </div>
               </div>
               <div className="flex gap-3 pt-2">
                 <button onClick={() => setEditingPatient(false)} className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition">Cancel</button>
-                <button onClick={savePatientEdit} className="flex-1 bg-sky-600 hover:bg-sky-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-sky-600/20 transition">Save Changes</button>
+                <button onClick={savePatientEdit} className="flex-1 bg-teal-600 hover:bg-teal-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-teal-600/20 transition">Save Changes</button>
               </div>
             </div>
           </div>
@@ -863,11 +992,11 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-slate-600 mb-1.5">Name</label>
-                <input type="text" value={editFileName} onChange={e => setEditFileName(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 outline-none transition" />
+                <input type="text" value={editFileName} onChange={e => setEditFileName(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
               </div>
               <div className="flex gap-3 pt-2">
                 <button onClick={() => setEditingFile(null)} className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition">Cancel</button>
-                <button onClick={saveFileEdit} className="flex-1 bg-sky-600 hover:bg-sky-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-sky-600/20 transition">Save Changes</button>
+                <button onClick={saveFileEdit} className="flex-1 bg-teal-600 hover:bg-teal-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-teal-600/20 transition">Save Changes</button>
               </div>
             </div>
           </div>
@@ -899,9 +1028,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         <div className="fixed inset-0 bg-white/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center">
           <div className="relative">
             <div className="w-16 h-16 border-4 border-slate-200 rounded-full"></div>
-            <div className="absolute top-0 left-0 w-16 h-16 border-4 border-sky-500 rounded-full border-t-transparent animate-spin"></div>
+            <div className="absolute top-0 left-0 w-16 h-16 border-4 border-teal-500 rounded-full border-t-transparent animate-spin"></div>
           </div>
-          <p className="text-sky-900 font-bold text-lg mt-6">HALO is analyzing...</p>
+          <p className="text-teal-900 font-bold text-lg mt-6">HALO is analyzing...</p>
           <p className="text-slate-500 text-sm mt-1">Extracting clinical concepts &amp; tagging files</p>
         </div>
       )}
@@ -910,9 +1039,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         <div className="fixed inset-0 bg-white/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center">
           <div className="relative">
             <div className="w-16 h-16 border-4 border-slate-200 rounded-full"></div>
-            <div className="absolute top-0 left-0 w-16 h-16 border-4 border-sky-500 rounded-full border-t-transparent animate-spin"></div>
+            <div className="absolute top-0 left-0 w-16 h-16 border-4 border-teal-500 rounded-full border-t-transparent animate-spin"></div>
           </div>
-          <p className="text-sky-900 font-bold text-lg mt-6">Saving note as DOCX...</p>
+          <p className="text-teal-900 font-bold text-lg mt-6">Saving note as DOCX...</p>
           <p className="text-slate-500 text-sm mt-1">Uploading to Patient Notes folder</p>
         </div>
       )}
@@ -927,15 +1056,15 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             </div>
             <div className="mb-3">
               <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Uploading to:</label>
-              <div className="flex items-center gap-2 bg-sky-50 border border-sky-100 px-3 py-2 rounded-lg">
-                <FolderOpen size={16} className="text-sky-600 shrink-0" />
-                <span className="text-sm font-semibold text-sky-700 truncate">{uploadTargetLabel}</span>
+              <div className="flex items-center gap-2 bg-teal-50 border border-teal-100 px-3 py-2 rounded-lg">
+                <FolderOpen size={16} className="text-teal-600 shrink-0" />
+                <span className="text-sm font-semibold text-teal-700 truncate">{uploadTargetLabel}</span>
               </div>
             </div>
             <div className="mb-4">
               {uploadPickerLoading ? (
                 <div className="flex items-center justify-center py-6">
-                  <Loader2 size={20} className="text-sky-500 animate-spin" />
+                  <Loader2 size={20} className="text-teal-500 animate-spin" />
                 </div>
               ) : uploadPickerFolders.length > 0 ? (
                 <div className="max-h-48 overflow-y-auto space-y-1.5 border border-slate-100 rounded-lg p-2">
@@ -944,9 +1073,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                     <button
                       key={folder.id}
                       onClick={() => selectUploadFolder(folder)}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-sm font-medium text-slate-700 hover:bg-sky-50 hover:text-sky-700 transition-colors"
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-sm font-medium text-slate-700 hover:bg-teal-50 hover:text-teal-700 transition-colors"
                     >
-                      <FolderOpen size={15} className="text-sky-500 shrink-0" />
+                      <FolderOpen size={15} className="text-teal-500 shrink-0" />
                       <span className="truncate">{folder.name}</span>
                       <ChevronRight size={14} className="text-slate-300 ml-auto shrink-0" />
                     </button>
@@ -958,7 +1087,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             </div>
             <div className="flex gap-3">
               <button onClick={() => setShowUploadPicker(false)} className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition">Cancel</button>
-              <button onClick={confirmUploadDestination} className="flex-1 bg-sky-600 hover:bg-sky-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-sky-600/20 transition flex items-center justify-center gap-2">
+              <button onClick={confirmUploadDestination} className="flex-1 bg-teal-600 hover:bg-teal-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-teal-600/20 transition flex items-center justify-center gap-2">
                 <Upload size={16} /> Choose File
               </button>
             </div>
@@ -977,6 +1106,60 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         />
       )}
 
+      {/* EMAIL NOTE MODAL */}
+      {showEmailNoteModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4 safe-pad-b">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl p-6 w-full max-w-sm max-h-[90dvh] overflow-y-auto sm:m-4">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-slate-800">Email note</h3>
+              <button
+                type="button"
+                onClick={() => { setShowEmailNoteModal(false); setEmailNoteRecipient(""); }}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mb-4">
+              Sends the active note as plain text. The recipient can reply to your signed-in Google address when the server supports it.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-slate-600 mb-1.5">Recipient</label>
+                <input
+                  type="email"
+                  value={emailNoteRecipient}
+                  onChange={(e) => setEmailNoteRecipient(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !emailNoteSending) void handleSendNoteEmail(); }}
+                  placeholder="colleague@hospital.org"
+                  className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition"
+                  autoFocus
+                  autoComplete="email"
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowEmailNoteModal(false); setEmailNoteRecipient(""); }}
+                  className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSendNoteEmail()}
+                  disabled={emailNoteSending || !emailNoteRecipient.trim()}
+                  className="flex-1 bg-slate-600 hover:bg-slate-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-slate-600/20 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {emailNoteSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail size={16} />}
+                  Send
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* CREATE FOLDER MODAL */}
       {showCreateFolderModal && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4 safe-pad-b">
@@ -988,7 +1171,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Creating folder in:</label>
-                <p className="text-sm font-semibold text-sky-700 bg-sky-50 px-3 py-2 rounded-lg border border-sky-100">
+                <p className="text-sm font-semibold text-teal-700 bg-teal-50 px-3 py-2 rounded-lg border border-teal-100">
                   {breadcrumbs.map(b => b.name).join(' / ')}
                 </p>
               </div>
@@ -1000,13 +1183,13 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                   onChange={e => setNewFolderName(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') handleCreateFolder(); }}
                   placeholder="e.g. Lab Results, Imaging..."
-                  className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 outline-none transition"
+                  className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition"
                   autoFocus
                 />
               </div>
               <div className="flex gap-3 pt-2">
                 <button onClick={() => { setShowCreateFolderModal(false); setNewFolderName(""); }} className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition">Cancel</button>
-                <button onClick={handleCreateFolder} disabled={!newFolderName.trim()} className="flex-1 bg-sky-600 hover:bg-sky-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-sky-600/20 transition disabled:opacity-50 flex items-center justify-center gap-2">
+                <button onClick={handleCreateFolder} disabled={!newFolderName.trim()} className="flex-1 bg-teal-600 hover:bg-teal-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-teal-600/20 transition disabled:opacity-50 flex items-center justify-center gap-2">
                   <FolderPlus size={16} /> Create
                 </button>
               </div>

@@ -1,17 +1,12 @@
 import { Router, Request, Response } from 'express';
-import nodemailer from 'nodemailer';
 import { requireAuth } from '../middleware/requireAuth';
 import { config } from '../config';
+import { createMailTransporter, getSmtpFromAddress, isSmtpConfigured } from '../services/mail';
 
 const router = Router();
 router.use(requireAuth);
 
 const ADMIN_EMAIL = config.adminEmail;
-
-/** Check if email can be sent (SMTP configured) */
-function isEmailConfigured(): boolean {
-  return Boolean(config.smtpHost && config.smtpUser && config.smtpPass);
-}
 
 /**
  * POST /api/request-template
@@ -31,7 +26,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  if (!isEmailConfigured()) {
+  if (!isSmtpConfigured()) {
     console.warn('[request-template] SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS to send template requests.');
     res.status(503).json({
       error: 'Email is not configured. Your request was not sent. Please contact support.',
@@ -40,15 +35,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   }
 
   try {
-    const transporter = nodemailer.createTransport({
-      host: config.smtpHost,
-      port: config.smtpPort,
-      secure: config.smtpSecure,
-      auth: {
-        user: config.smtpUser,
-        pass: config.smtpPass,
-      },
-    });
+    const transporter = createMailTransporter();
 
     const decodedAttachments: Array<{ filename: string; content: Buffer }> = [];
     if (Array.isArray(attachments)) {
@@ -79,7 +66,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     ].join('\n');
 
     await transporter.sendMail({
-      from: config.smtpUser,
+      from: getSmtpFromAddress(),
       to: ADMIN_EMAIL,
       subject,
       text,

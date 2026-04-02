@@ -1,15 +1,32 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { config } from '../config';
-import { soapNotePrompt } from '../utils/prompts';
+import { getGeminiGuideForTemplate } from '../../shared/haloTemplates';
+import { haloTemplateFallbackPrompt, soapNotePrompt } from '../utils/prompts';
+import { createHash } from 'crypto';
 
 // Using gemini-flash-latest - this model has free tier access (15 RPM)
 // Alternative: 'gemini-pro-latest' (also has free tier, but slower)
 const TEXT_MODEL = 'gemini-flash-latest';
 const VISION_MODEL = 'gemini-flash-latest';
 const MAX_RETRIES = 2;
-const BASE_RETRY_DELAY_MS = 2000;
-/** Timeout for Gemini API calls (15–50s typical; allow up to 90s including retries) */
-export const GEMINI_TIMEOUT_MS = 90_000;
+const BASE_RETRY_DELAY_MS = 1200;
+/** Timeout for Gemini API calls (tuned to fail a bit sooner when the API is stuck) */
+export const GEMINI_TIMEOUT_MS = 75_000;
+
+/**
+ * Cache Gemini clinical note fallback per transcript to reduce latency when:
+ * - Halo generate_note is down (triggering Gemini fallback)
+ * - the UI requests multiple templates in parallel
+ */
+const clinicalNoteFallbackCache = new Map<
+  string,
+  { createdAt: number; expiresAt: number; promise: Promise<string> }
+>();
+const CLINICAL_NOTE_FALLBACK_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function fallbackCacheKey(transcript: string, templateId: string): string {
+  return createHash('sha256').update(`${transcript}\0${templateId}`).digest('hex');
+}
 
 function getGenAI(): GoogleGenerativeAI {
   return new GoogleGenerativeAI(config.geminiApiKey);
@@ -60,14 +77,53 @@ export async function generateText(prompt: string): Promise<string> {
   const genAI = getGenAI();
   const model = genAI.getGenerativeModel({ model: TEXT_MODEL });
   const result = await withRetry(() =>
-    model.generateContent(prompt, geminiRequestOptions)
+    model.generateContent(
+      {
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.35,
+          maxOutputTokens: 16384,
+        },
+      },
+      geminiRequestOptions
+    )
   );
   return result.response.text();
 }
 
-/** Fallback when Halo generate_note is unavailable — same SOAP-style note shape for the client. */
-export async function generateClinicalNoteFromTranscript(transcript: string): Promise<string> {
-  return generateText(soapNotePrompt(transcript));
+/**
+ * Fallback when Halo/Python generate_note is unavailable.
+ * Uses per-template_id structure when known; otherwise SOAP.
+ */
+export async function generateClinicalNoteFromTranscript(
+  transcript: string,
+  templateId: string = 'default'
+): Promise<string> {
+  const normalized = (transcript ?? '').trim();
+  const guide = getGeminiGuideForTemplate(templateId);
+  const prompt = guide
+    ? haloTemplateFallbackPrompt(normalized, templateId, guide)
+    : soapNotePrompt(normalized);
+  const key = fallbackCacheKey(normalized, templateId);
+  const now = Date.now();
+
+  const cached = clinicalNoteFallbackCache.get(key);
+  if (cached && cached.expiresAt > now) {
+    return cached.promise;
+  }
+
+  const promise = generateText(prompt).catch((err) => {
+    clinicalNoteFallbackCache.delete(key);
+    throw err;
+  });
+
+  clinicalNoteFallbackCache.set(key, {
+    createdAt: now,
+    expiresAt: now + CLINICAL_NOTE_FALLBACK_TTL_MS,
+    promise,
+  });
+
+  return promise;
 }
 
 /**
@@ -109,7 +165,21 @@ export async function transcribeAudio(prompt: string, base64Data: string, mimeTy
   const model = genAI.getGenerativeModel({ model: TEXT_MODEL });
   const result = await withRetry(() =>
     model.generateContent(
-      [prompt, { inlineData: { data: base64Data, mimeType } }],
+      {
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: prompt },
+              { inlineData: { mimeType, data: base64Data } },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: 16384,
+        },
+      },
       geminiRequestOptions
     )
   );

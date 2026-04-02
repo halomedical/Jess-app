@@ -9,6 +9,7 @@ import driveRoutes from './routes/drive';
 import aiRoutes from './routes/ai';
 import haloRoutes from './routes/halo';
 import requestTemplateRoutes from './routes/requestTemplate';
+import emailNoteRoutes from './routes/emailNote';
 import { startScheduler } from './jobs/scheduler';
 
 const app = express();
@@ -69,6 +70,7 @@ app.use('/api/drive', driveRoutes);
 app.use('/api/ai', aiLimiter, aiRoutes);
 app.use('/api/halo', aiLimiter, haloRoutes);
 app.use('/api/request-template', requestTemplateRoutes);
+app.use('/api/email-note', emailNoteRoutes);
 
 // Health check
 app.get('/api/health', (_req: Request, res: Response) => {

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Mic, Square, Wand2 } from 'lucide-react';
 import { transcribeAudio } from '../../services/api';
+import { blobToBase64Raw } from '../../utils/blobToBase64Raw';
 
 interface Props {
   onTranscriptionComplete: (transcript: string) => void;
@@ -21,7 +22,7 @@ export const UniversalScribe: React.FC<Props> = ({ onTranscriptionComplete, onEr
       setLongWait(false);
       return;
     }
-    const id = setTimeout(() => setLongWait(true), 10_000);
+    const id = setTimeout(() => setLongWait(true), 7000);
     return () => clearTimeout(id);
   }, [isProcessing]);
 
@@ -62,25 +63,15 @@ export const UniversalScribe: React.FC<Props> = ({ onTranscriptionComplete, onEr
         setIsProcessing(true);
         try {
           const audioBlob = new Blob(chunksRef.current, { type: recordingMimeType.current });
-
-          const reader = new FileReader();
-          reader.readAsDataURL(audioBlob);
-          reader.onloadend = async () => {
-            try {
-              const base64Data = (reader.result as string).split(',')[1];
-              if (base64Data) {
-                const transcript = await transcribeAudio(base64Data, recordingMimeType.current);
-                onTranscriptionComplete(transcript);
-              }
-            } catch (err) {
-              onError?.(`Transcription failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-            }
-            setIsProcessing(false);
-          };
+          const base64Data = await blobToBase64Raw(audioBlob);
+          if (base64Data) {
+            const transcript = await transcribeAudio(base64Data, recordingMimeType.current);
+            onTranscriptionComplete(transcript);
+          }
         } catch (err) {
-          onError?.(`Audio processing failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-          setIsProcessing(false);
+          onError?.(`Transcription failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
+        setIsProcessing(false);
       };
 
       mediaRecorder.start();
@@ -110,13 +101,13 @@ export const UniversalScribe: React.FC<Props> = ({ onTranscriptionComplete, onEr
 
       {/* Processing indicator pill */}
       {isProcessing && (
-        <div className="bg-white border border-sky-200 shadow-lg rounded-full px-3 py-1.5 flex flex-col items-end gap-1">
+        <div className="bg-white border border-teal-200 shadow-lg rounded-full px-3 py-1.5 flex flex-col items-end gap-1">
           <div className="flex items-center gap-2">
-            <Wand2 className="w-3.5 h-3.5 text-sky-500 animate-spin" />
-            <span className="text-[11px] font-bold text-sky-700 uppercase tracking-wider">Scribing...</span>
+            <Wand2 className="w-3.5 h-3.5 text-teal-500 animate-spin" />
+            <span className="text-[11px] font-bold text-teal-700 uppercase tracking-wider">Scribing...</span>
           </div>
           {longWait && (
-            <span className="text-[9px] text-slate-500">This may take 15–60 seconds.</span>
+            <span className="text-[9px] text-slate-500">Still working — often under 30s.</span>
           )}
         </div>
       )}
@@ -131,7 +122,7 @@ export const UniversalScribe: React.FC<Props> = ({ onTranscriptionComplete, onEr
             ? 'bg-red-500 hover:bg-red-600 text-white ring-4 ring-red-200 animate-pulse'
             : isProcessing
               ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-              : 'bg-sky-600 hover:bg-sky-700 text-white hover:scale-110 active:scale-95 hover:shadow-xl'
+              : 'bg-teal-600 hover:bg-teal-700 text-white hover:scale-110 active:scale-95 hover:shadow-xl'
         }`}
       >
         {isProcessing ? (

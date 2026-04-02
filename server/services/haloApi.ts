@@ -5,6 +5,7 @@
 
 import { config } from '../config';
 import { generateClinicalNoteFromTranscript } from './gemini';
+import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 
 const BASE = config.haloApiBaseUrl;
 
@@ -67,6 +68,70 @@ function extractFieldsFromNoteData(data: unknown): NoteField[] | null {
 
 function fieldsToContent(fields: NoteField[]): string {
   return fields.map(f => (f.label ? `${f.label}:\n${f.body || ''}` : f.body)).filter(Boolean).join('\n\n');
+}
+
+type HeadingLevelValue = (typeof HeadingLevel)[keyof typeof HeadingLevel];
+
+function stripMarkdownInline(text: string): string {
+  // Remove common markdown tokens while keeping readable text.
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '$1') // bold markers
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[(.+?)\]\((.+?)\)/g, '$1') // links
+    .replace(/^\s*[-*]\s+/g, '• ') // bullets
+    .trimEnd();
+}
+
+function stripMarkdownHeadingPrefix(line: string): { level: HeadingLevelValue | null; text: string } {
+  const trimmed = line.trim();
+  if (trimmed.startsWith('### ')) return { level: HeadingLevel.HEADING_3, text: trimmed.slice(4).trim() };
+  if (trimmed.startsWith('## ')) return { level: HeadingLevel.HEADING_2, text: trimmed.slice(3).trim() };
+  if (trimmed.startsWith('# ')) return { level: HeadingLevel.HEADING_1, text: trimmed.slice(2).trim() };
+  return { level: null, text: line };
+}
+
+async function createLocalDocxFromText(text: string, title?: string): Promise<Buffer> {
+  const cleaned = (text ?? '').toString();
+  const parts = cleaned
+    .split(/\r?\n/)
+    .map((l) => l.replace(/\t/g, '  '))
+    .filter((l, idx, arr) => !(l === '' && arr[idx - 1] === ''));
+
+  const paragraphs: Paragraph[] = [];
+
+  if (title?.trim()) {
+    paragraphs.push(
+      new Paragraph({
+        heading: HeadingLevel.HEADING_2,
+        children: [new TextRun({ text: title.trim() })],
+      })
+    );
+  }
+
+  for (let i = 0; i < parts.length; i++) {
+    const line = parts[i];
+    if (!line.trim()) continue;
+
+    const { level, text: headingText } = stripMarkdownHeadingPrefix(line);
+    const out = stripMarkdownInline(level ? headingText : line);
+    paragraphs.push(
+      new Paragraph({
+        heading: level ?? undefined,
+        children: [new TextRun({ text: out })],
+      })
+    );
+  }
+
+  const doc = new Document({
+    sections: [
+      {
+        children: paragraphs.length ? paragraphs : [new Paragraph('')],
+      },
+    ],
+  });
+
+  return await Packer.toBuffer(doc);
 }
 
 /** Normalize upstream response to array of HaloNote. Handles various shapes from Halo webhook. */
@@ -168,8 +233,37 @@ export async function generateNote(params: GenerateNoteParams): Promise<HaloNote
 
   async function noteFallback(reason: string): Promise<HaloNote[]> {
     console.warn(`[Halo] generate_note ${reason}; using Gemini clinical note fallback.`);
-    const content = await generateClinicalNoteFromTranscript(params.text);
+    let content: string;
+    try {
+      content = await generateClinicalNoteFromTranscript(params.text, params.template_id);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Gemini fallback requires Generative Language API enabled on the GCP project
+      // associated with GEMINI_API_KEY. Surface an actionable message.
+      if (msg.includes('SERVICE_DISABLED') || msg.includes('403') || msg.toLowerCase().includes('generativelanguage')) {
+        throw new Error(
+          [
+            'Gemini fallback failed because the Generative Language API is disabled.',
+            'To fix: enable the API for the Google Cloud project used by your GEMINI_API_KEY, then retry in a few minutes.',
+            'Activation link (from your error): https://console.developers.google.com/apis/api/generativelanguage.googleapis.com/overview?project=999125654566',
+          ].join(' ')
+        );
+      }
+      throw err;
+    }
     return normalizeNotesResponse(content, params.template_id);
+  }
+
+  async function docxFallback(reason: string): Promise<Buffer> {
+    console.warn(`[Halo] generate_note docx ${reason}; using local DOCX from structured fallback text.`);
+    const title = `Clinical Note (${params.template_id})`;
+    try {
+      const content = await generateClinicalNoteFromTranscript(params.text, params.template_id);
+      return await createLocalDocxFromText(content, title);
+    } catch {
+      console.warn('[Halo] docx fallback: Gemini failed; using raw transcript in DOCX.');
+      return await createLocalDocxFromText(params.text, title);
+    }
   }
 
   let res: Response;
@@ -188,12 +282,18 @@ export async function generateNote(params: GenerateNoteParams): Promise<HaloNote
     if (return_type === 'note') {
       return noteFallback(`network error: ${e instanceof Error ? e.message : String(e)}`);
     }
+    if (return_type === 'docx') {
+      return docxFallback(`network error: ${e instanceof Error ? e.message : String(e)}`);
+    }
     throw e instanceof Error ? e : new Error(String(e));
   }
 
   if (!res.ok) {
     if (return_type === 'note' && (res.status === 502 || res.status >= 500)) {
       return noteFallback(`HTTP ${res.status}`);
+    }
+    if (return_type === 'docx' && (res.status === 502 || res.status >= 500)) {
+      return docxFallback(`HTTP ${res.status}`);
     }
     if (res.status === 400) throw new Error('Invalid request to Halo note generation.');
     if (res.status === 502) throw new Error('Halo note service unavailable. Please try again.');

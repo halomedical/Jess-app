@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { DEFAULT_HALO_API_USER_ID } from '../../shared/haloTemplates';
 
 dotenv.config();
 
@@ -21,6 +22,8 @@ export const config = {
   // AI
   geminiApiKey: process.env.GEMINI_API_KEY!,
   deepgramApiKey: process.env.DEEPGRAM_API_KEY || '',
+  /** Prerecorded model; nova-2-medical is typically faster than nova-3-medical (override for max accuracy). */
+  deepgramModel: process.env.DEEPGRAM_MODEL || 'nova-2-medical',
 
   // Session
   sessionSecret: process.env.SESSION_SECRET!,
@@ -40,7 +43,7 @@ export const config = {
 
   // Halo Functions API
   haloApiBaseUrl: process.env.HALO_API_BASE_URL || 'https://halo-functions-75316778879.africa-south1.run.app',
-  haloUserId: process.env.HALO_USER_ID || 'cae6877e-0fbe-4ea1-acce-39957e7575bc',
+  haloUserId: process.env.HALO_USER_ID || DEFAULT_HALO_API_USER_ID,
 
   // Template request email (optional)
   adminEmail: process.env.ADMIN_EMAIL || 'admin@halo.africa',
@@ -49,4 +52,6 @@ export const config = {
   smtpSecure: process.env.SMTP_SECURE === 'true',
   smtpUser: process.env.SMTP_USER || '',
   smtpPass: process.env.SMTP_PASS || '',
+  /** Optional; defaults to SMTP_USER. Use when your provider requires a verified From. */
+  smtpFrom: process.env.SMTP_FROM || '',
 } as const;

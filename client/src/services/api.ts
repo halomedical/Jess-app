@@ -285,6 +285,18 @@ export const saveNoteAsDocx = (params: {
     }),
   });
 
+/** Email the current note as plain text (requires server SMTP). */
+export const sendClinicalNoteEmail = (params: {
+  to: string;
+  subject?: string;
+  text: string;
+  patientName?: string;
+}) =>
+  request<{ ok: boolean; message: string }>('/api/email-note', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+
 export const searchPatientsByConcept = async (
   query: string,
   patients: Patient[],

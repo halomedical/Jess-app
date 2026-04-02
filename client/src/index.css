@@ -11,6 +11,11 @@ body {
   overflow-x: hidden;
 }
 
+/* Matches sign-in wordmark: serif for titles / brand lines */
+.font-display {
+  font-family: Georgia, 'Times New Roman', Times, serif;
+}
+
 #root {
   min-height: 100%;
   min-height: 100dvh;

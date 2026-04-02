@@ -7,6 +7,7 @@ import React, {
   useState,
 } from 'react';
 import { transcribeAudio } from '../../services/api';
+import { blobToBase64Raw } from '../../utils/blobToBase64Raw';
 
 export type SessionPublicStatus = 'idle' | 'recording' | 'recording_paused' | 'paused' | 'processing';
 
@@ -48,18 +49,6 @@ interface RecordingSessionsValue {
 }
 
 const RecordingSessionsContext = createContext<RecordingSessionsValue | null>(null);
-
-async function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('read failed'));
-    reader.onloadend = () => {
-      const r = reader.result as string;
-      resolve(r.split(',')[1] || '');
-    };
-    reader.readAsDataURL(blob);
-  });
-}
 
 function pickMimeType(): string {
   if (typeof MediaRecorder === 'undefined') return 'audio/webm';
@@ -253,15 +242,16 @@ export function RecordingSessionsProvider({ children }: { children: React.ReactN
 
       setProcessingPatientId(patientId);
       try {
-        /** Transcribe each park/session chunk separately — merged WebM blobs often decode as one repeated clip. */
-        const parts: string[] = [];
-        for (const seg of segs) {
-          if (!seg.blob?.size) continue;
-          const base64 = await blobToBase64(seg.blob);
-          if (!base64) continue;
-          const t = (await transcribeAudio(base64, seg.mimeType || 'audio/webm')).trim();
-          if (t) parts.push(t);
-        }
+        /** Transcribe each segment in parallel (park/resume can produce several clips). */
+        const tasks = segs
+          .filter((seg) => seg.blob?.size)
+          .map(async (seg) => {
+            const base64 = await blobToBase64Raw(seg.blob);
+            if (!base64) return '';
+            const t = (await transcribeAudio(base64, seg.mimeType || 'audio/webm')).trim();
+            return t;
+          });
+        const parts = (await Promise.all(tasks)).filter(Boolean);
 
         delete segmentsRef.current[patientId];
 

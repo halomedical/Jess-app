@@ -84,15 +84,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <div
       key={`${keyPrefix}-${patient.id}`}
       onClick={() => onSelectPatient(patient.id)}
-      className={`group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all border border-transparent mb-1 ${
+      className={`group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all border mb-1 ${
         selectedPatientId === patient.id
-          ? 'bg-sky-600/10 border-sky-500/30 text-sky-400 shadow-sm'
-          : 'hover:bg-slate-800 hover:border-slate-700/50 hover:text-slate-100'
+          ? 'bg-teal-50 border-teal-200 text-teal-900 shadow-sm'
+          : 'border-transparent hover:bg-white hover:border-slate-200 hover:shadow-sm text-slate-700'
       }`}
     >
       <div className="flex items-center gap-3 overflow-hidden">
         <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold ${
-          selectedPatientId === patient.id ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-white'
+          selectedPatientId === patient.id ? 'bg-teal-600 text-white' : 'bg-slate-300/90 text-slate-700 group-hover:bg-teal-100 group-hover:text-teal-900'
         }`}>
           {patient.name.charAt(0)}
         </div>
@@ -104,7 +104,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="flex items-center gap-1">
         <button
           onClick={(e) => { e.stopPropagation(); if (onDeletePatient) onDeletePatient(patient); }}
-          className="p-2.5 min-w-[44px] min-h-[44px] rounded-lg opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all duration-200 hover:bg-rose-500/20 hover:text-rose-400 text-slate-500 flex items-center justify-center shrink-0"
+          className="p-2.5 min-w-[44px] min-h-[44px] rounded-lg opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all duration-200 hover:bg-rose-100 hover:text-rose-600 text-slate-400 flex items-center justify-center shrink-0"
           title="Delete Folder"
         >
           <Trash2 size={16} />
@@ -117,40 +117,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
   );
 
   return (
-    <div className="w-full min-w-0 md:w-80 md:max-w-[20rem] md:shrink-0 bg-slate-900 h-full min-h-0 flex flex-col text-slate-300 border-r border-slate-800 shadow-2xl">
+    <div className="w-full min-w-0 md:w-80 md:max-w-[20rem] md:shrink-0 bg-gradient-to-b from-slate-200 to-slate-100 h-full min-h-0 flex flex-col text-slate-700 border-r border-slate-300/90 shadow-[4px_0_20px_-6px_rgba(15,23,42,0.12)]">
       <div className="p-4 sm:p-6 safe-pad-t">
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl overflow-hidden shadow-lg shadow-sky-900/20">
-              <img src="/halo-icon.png" alt="HALO" className="w-full h-full object-cover" draggable={false} />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-600 to-teal-800 shadow-lg shadow-teal-950/40 flex items-center justify-center text-white font-display font-bold text-sm tracking-tight border border-teal-500/30">
+              JJ
             </div>
             <div>
-              <h1 className="font-bold text-white text-lg tracking-tight">HALO</h1>
-              <p className="text-xs text-sky-500 font-bold tracking-wider">PATIENT DRIVE</p>
+              <h1 className="font-display font-bold text-slate-800 text-base tracking-wide leading-tight">Dr Jess John</h1>
+              <p className="text-[10px] text-teal-700 font-bold tracking-[0.2em] uppercase mt-0.5">Patient workspace</p>
             </div>
           </div>
           <button
             onClick={onOpenSettings}
-            className="p-2 rounded-lg text-slate-500 hover:text-sky-400 hover:bg-slate-800 transition-all"
+            className="p-2 rounded-lg text-slate-600 hover:text-teal-800 hover:bg-slate-100/90 transition-all"
             title="Settings & Profile"
           >
             <Settings size={20} />
           </button>
         </div>
         <div className="relative group">
-          <Search className="absolute left-3 top-3 text-slate-500 group-focus-within:text-sky-400 transition-colors" size={18} />
+          <Search className="absolute left-3 top-3 text-slate-400 group-focus-within:text-teal-600 transition-colors" size={18} />
           <input
             type="text"
             placeholder="Search name, DOB, or condition..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-slate-800/50 focus:bg-slate-800 text-base pl-10 pr-4 py-2.5 min-h-[44px] rounded-xl outline-none focus:ring-2 focus:ring-sky-500/50 border border-transparent focus:border-sky-500/30 transition-all placeholder:text-slate-600"
+            className="w-full bg-white text-slate-800 text-base pl-10 pr-4 py-2.5 min-h-[44px] rounded-xl outline-none focus:ring-2 focus:ring-teal-400/60 border border-slate-200 focus:border-teal-400 transition-all placeholder:text-slate-400 shadow-sm"
           />
         </div>
         {isAiSearching && searchTerm.length >= 3 && (
           <div className="flex items-center gap-2 mt-2 px-1">
-            <Loader2 size={12} className="text-sky-500 animate-spin" />
-            <span className="text-[10px] text-sky-500 font-medium uppercase tracking-wider">Scanning patient records...</span>
+            <Loader2 size={12} className="text-teal-500 animate-spin" />
+            <span className="text-[10px] text-teal-500 font-medium uppercase tracking-wider">Scanning patient records...</span>
           </div>
         )}
       </div>
@@ -159,16 +159,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {!searchTerm && patients.length > 0 && (
           <div className="mb-6">
             <div className="flex items-center gap-2 px-2 mb-2">
-              <Clock size={12} className="text-sky-500"/>
+              <Clock size={12} className="text-teal-500"/>
               <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Recent Activity</h3>
             </div>
             {recentPatients.map(p => renderPatientRow(p, 'recent'))}
-            <div className="my-4 border-t border-slate-800/50 mx-2"></div>
+            <div className="my-4 border-t border-slate-300/70 mx-2"></div>
           </div>
         )}
         <div>
           <div className="flex items-center gap-2 px-2 mb-2">
-            <Users size={12} className={searchTerm ? "text-sky-500" : "text-slate-500"}/>
+            <Users size={12} className={searchTerm ? "text-teal-500" : "text-slate-500"}/>
             <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
               {searchTerm ? 'Search Results' : 'All Patients'}
               <span className="ml-1 opacity-60">({filteredPatients.length})</span>
@@ -182,11 +182,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      <div className="p-4 border-t border-slate-800 bg-slate-900/50 backdrop-blur-sm z-10 safe-pad-b">
-        <button onClick={onCreatePatient} className="w-full bg-sky-600 hover:bg-sky-500 text-white min-h-[48px] p-3.5 rounded-xl font-bold transition-all shadow-lg shadow-sky-900/20 flex items-center justify-center gap-2 mb-3 active:scale-[0.98]">
+      <div className="p-4 border-t border-slate-300/80 bg-slate-100/95 backdrop-blur-sm z-10 safe-pad-b">
+        <button onClick={onCreatePatient} className="w-full bg-teal-600 hover:bg-teal-700 text-white min-h-[48px] p-3.5 rounded-xl font-bold transition-all shadow-md shadow-teal-900/15 flex items-center justify-center gap-2 mb-3 active:scale-[0.98]">
           <Plus size={20} /> New Patient Folder
         </button>
-        <button onClick={onLogout} className="w-full flex items-center justify-center gap-2 text-xs font-medium text-slate-500 hover:text-slate-300 py-2 transition-colors">
+        <button onClick={onLogout} className="w-full flex items-center justify-center gap-2 text-xs font-medium text-slate-500 hover:text-slate-800 py-2 transition-colors">
           <LogOut size={14} /> SIGN OUT
         </button>
       </div>

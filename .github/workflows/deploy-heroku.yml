@@ -1,0 +1,32 @@
+# Deploy to Heroku when `main` is updated on GitHub.
+#
+# Setup (one time):
+# 1. Heroku: Account Settings → find "API Key" (or create from CLI: `heroku auth:token`)
+# 2. GitHub: this repo → Settings → Secrets and variables → Actions → New repository secret
+#    Name: HEROKU_API_KEY   Value: (paste API key)
+# 3. Push this workflow to GitHub. After that: every `git push origin main` deploys Heroku.
+#
+# If your Heroku app name is not jess-app1, change HEROKU_APP below or add a repo variable.
+
+name: Deploy to Heroku
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  HEROKU_APP: jess-app1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Deploy to Heroku
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+        run: git push "https://heroku:${HEROKU_API_KEY}@git.heroku.com/${HEROKU_APP}.git" HEAD:main

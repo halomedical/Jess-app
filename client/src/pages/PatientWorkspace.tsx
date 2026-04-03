@@ -27,6 +27,7 @@ import { FileBrowser } from '../components/FileBrowser';
 import { NoteEditor } from '../components/NoteEditor';
 import { PatientChat } from '../components/PatientChat';
 import { getErrorMessage, formatDocumentDateDisplay, sanitizeDocxFileBase } from '../utils/formatting';
+import { inAppPatientMirrorKey } from '../utils/inAppDraftMirror';
 
 interface Props {
   patient: Patient;
@@ -44,11 +45,6 @@ const DRAFT_TTL_MS = 365 * 24 * 60 * 60 * 1000; // 1 year
 function draftStorageKey(userEmail: string | undefined, patientId: string): string {
   const who = (userEmail || 'anon').toLowerCase().trim() || 'anon';
   return `halo_editorScribeDraft_v${DRAFT_STORAGE_VERSION}:${who}:${patientId}`;
-}
-
-/** Same data as the signed-in key, but keyed only by patient — survives email / anon mismatches in this browser. */
-function inAppPatientMirrorKey(patientId: string): string {
-  return `halo_inAppPatientDraft_v1:${patientId}`;
 }
 
 function safeParseDraft(raw: string | null): { savedAt: number; draft: PatientEditorDraft } | null {
@@ -546,6 +542,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       ...n,
       ...(updates.title !== undefined && { title: updates.title }),
       ...(updates.content !== undefined && { content: updates.content }),
+      ...(!n.createdAt ? { createdAt: new Date().toISOString() } : {}),
       dirty: true,
     }));
   }, []);
@@ -792,18 +789,23 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         const content = first?.content?.trim()
           ? first.content
           : pendingTranscript;
+        const createdAt = new Date().toISOString();
         return {
           noteId: first?.noteId ?? `note-${tid}-${Date.now()}`,
           title: `${name} ${formatDocumentDateDisplay()}`,
           content,
           template_id: tid,
-          lastSavedAt: new Date().toISOString(),
+          createdAt,
+          lastSavedAt: createdAt,
           dirty: false,
           ...(first?.fields && first.fields.length > 0 ? { fields: first.fields } : {}),
         };
       });
-      setNotes(combined);
-      setActiveNoteIndex(0);
+      setNotes(prev => {
+        const newIdx = prev.length;
+        setActiveNoteIndex(newIdx);
+        return [...prev, ...combined];
+      });
       setPendingTranscript(null);
       onToast(`Generated ${combined.length} note(s). You can edit and save as DOCX.`, 'success');
     } catch (err) {

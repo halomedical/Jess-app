@@ -3,6 +3,18 @@ import { Save, FileDown, Mail, Loader2, Eye, Pencil } from 'lucide-react';
 import type { HaloNote } from '../../../shared/types';
 import { AppStatus } from '../../../shared/types';
 import { buildNotePlainText } from '../../../shared/notePlainText';
+import { formatDocumentDateDisplay } from '../utils/formatting';
+
+function tabDateLabelForNote(note: HaloNote): string {
+  const iso = note.createdAt || note.lastSavedAt;
+  if (iso) return formatDocumentDateDisplay(new Date(iso));
+  const m = note.noteId.match(/(\d{10,})$/);
+  if (m) {
+    const ts = Number(m[1]);
+    if (!Number.isNaN(ts)) return formatDocumentDateDisplay(new Date(ts));
+  }
+  return formatDocumentDateDisplay(new Date());
+}
 
 /** Parse note content into labeled fields (e.g. "Subjective:", "Plan:" blocks) for preview */
 function parseNoteFields(content: string): Array<{ label: string; body: string }> {
@@ -109,18 +121,28 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
         {/* Mini-tabs per note */}
         <div className="flex gap-1 flex-wrap">
-          {notes.map((note, i) => (
-            <button
-              key={note.noteId}
-              type="button"
-              onClick={() => onActiveIndexChange(i)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                i === activeIndex ? 'bg-teal-600 text-white shadow-sm' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
-              }`}
-            >
-              {note.title || `Note ${i + 1}`}
-            </button>
-          ))}
+          {notes.map((note, i) => {
+            const dateLabel = tabDateLabelForNote(note);
+            return (
+              <button
+                key={note.noteId}
+                type="button"
+                onClick={() => onActiveIndexChange(i)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium text-left transition-all ${
+                  i === activeIndex ? 'bg-teal-600 text-white shadow-sm' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                }`}
+              >
+                <span className="block leading-tight">{note.title || `Note ${i + 1}`}</span>
+                <span
+                  className={`block text-[10px] font-normal mt-0.5 ${
+                    i === activeIndex ? 'text-teal-100' : 'text-slate-500'
+                  }`}
+                >
+                  {dateLabel}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 

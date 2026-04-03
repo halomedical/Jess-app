@@ -8,6 +8,7 @@ import React, {
 } from 'react';
 import { transcribeAudio } from '../../services/api';
 import { blobToBase64Raw } from '../../utils/blobToBase64Raw';
+import { mergeTranscriptIntoInAppMirrorDraft } from '../../utils/inAppDraftMirror';
 
 export type SessionPublicStatus = 'idle' | 'recording' | 'recording_paused' | 'paused' | 'processing';
 
@@ -259,6 +260,8 @@ export function RecordingSessionsProvider({ children }: { children: React.ReactN
         if (!transcript) {
           throw new Error('No speech detected in recordings.');
         }
+
+        mergeTranscriptIntoInAppMirrorDraft(patientId, transcript);
 
         const listeners = transcriptionListenersRef.current.get(patientId);
         if (listeners && listeners.size > 0) {

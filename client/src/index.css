@@ -34,3 +34,23 @@ body {
     padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
   }
 }
+
+/* Dark teal sidebar: scrollbar matches panel (mobile + desktop) */
+.sidebar-dark-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(45 115 110 / 0.85) rgb(15 80 75 / 0.35);
+}
+.sidebar-dark-scroll::-webkit-scrollbar {
+  width: 7px;
+}
+.sidebar-dark-scroll::-webkit-scrollbar-track {
+  background: rgb(15 80 75 / 0.25);
+  border-radius: 4px;
+}
+.sidebar-dark-scroll::-webkit-scrollbar-thumb {
+  background: rgb(45 115 110 / 0.75);
+  border-radius: 4px;
+}
+.sidebar-dark-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgb(56 178 172 / 0.85);
+}

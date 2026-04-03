@@ -75,6 +75,8 @@ export interface HaloNote {
   title: string;
   content: string;
   template_id: string;
+  /** ISO timestamp when the note was first created (stable tab date). */
+  createdAt?: string;
   lastSavedAt?: string;
   dirty?: boolean;
   /** Structured fields from generate_note (for preview before DOCX) */

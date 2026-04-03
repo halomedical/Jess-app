@@ -1,10 +1,16 @@
 import React from 'react';
 
 /**
- * Minimal wordmark inspired by the practice letterhead — name styling only (no credentials).
+ * Practice letterhead wordmark plus HALO Medical logo.
  */
 export const SignInBranding: React.FC<{ className?: string }> = ({ className = '' }) => (
   <div className={`select-none ${className}`}>
+    <img
+      src="/halo-logo.png"
+      alt="HALO Medical"
+      className="h-16 sm:h-[4.5rem] w-auto max-w-[min(280px,85vw)] mx-auto mb-5 object-contain opacity-95"
+      draggable={false}
+    />
     <svg
       viewBox="0 0 360 100"
       className="w-full max-w-[300px] h-auto mx-auto text-slate-900"

@@ -1,7 +1,10 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { Patient, DriveFile, LabAlert, BreadcrumbItem, ChatMessage, HaloNote } from '../../../shared/types';
 import { HALO_TEMPLATE_OPTIONS, DEFAULT_HALO_TEMPLATE_ID } from '../../../shared/haloTemplates';
 import { buildNotePlainText } from '../../../shared/notePlainText';
+import { buildClinicalNoteInputFromDictation, buildNoteTextWithPatientChart } from '../../../shared/patientChartContext';
+import type { ClinicalWorkspaceDraft as PatientEditorDraft, ClinicalWorkspaceDraftFile } from '../../../shared/workspaceDraft';
+import { isHaloWorkspaceDraftFile } from '../../../shared/workspaceDraft';
 import { AppStatus, FOLDER_MIME_TYPE } from '../../../shared/types';
 
 import {
@@ -9,6 +12,7 @@ import {
   updateFileMetadata, generatePatientSummary, analyzeAndRenameImage,
   extractLabAlerts, deleteFile, createFolder, askHaloStream,
   generateNotePreview, saveNoteAsDocx, sendClinicalNoteEmail,
+  fetchWorkspaceDraft, saveWorkspaceDraft,
 } from '../services/api';
 import {
   Upload, Calendar, Clock, CheckCircle2, ChevronLeft, Loader2,
@@ -33,20 +37,18 @@ interface Props {
   templateId?: string;
 }
 
-interface PatientEditorDraft {
-  pendingTranscript: string | null;
-  notes: HaloNote[];
-  activeNoteIndex: number;
-  selectedTemplatesForGenerate: string[];
-  templateId: string;
-}
-
 const DRAFT_STORAGE_VERSION = 1 as const;
-const DRAFT_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+/** Local draft retention (notes should not vanish because of age). */
+const DRAFT_TTL_MS = 365 * 24 * 60 * 60 * 1000; // 1 year
 
 function draftStorageKey(userEmail: string | undefined, patientId: string): string {
   const who = (userEmail || 'anon').toLowerCase().trim() || 'anon';
   return `halo_editorScribeDraft_v${DRAFT_STORAGE_VERSION}:${who}:${patientId}`;
+}
+
+/** Same data as the signed-in key, but keyed only by patient — survives email / anon mismatches in this browser. */
+function inAppPatientMirrorKey(patientId: string): string {
+  return `halo_inAppPatientDraft_v1:${patientId}`;
 }
 
 function safeParseDraft(raw: string | null): { savedAt: number; draft: PatientEditorDraft } | null {
@@ -71,6 +73,86 @@ function safeParseDraft(raw: string | null): { savedAt: number; draft: PatientEd
   }
 }
 
+function draftHasContent(d: PatientEditorDraft): boolean {
+  return (d.notes?.length ?? 0) > 0 || !!(d.pendingTranscript && d.pendingTranscript.trim());
+}
+
+function withinDraftTtl(s: ReturnType<typeof safeParseDraft>): boolean {
+  return !!(s && Date.now() - s.savedAt <= DRAFT_TTL_MS);
+}
+
+/**
+ * Best local draft for this patient: scans every storage key for this patientId (any signed-in user / anon)
+ * so notes reappear after account switches; prefers drafts with real content over empty + newer timestamp.
+ */
+function pickStoredDraft(
+  userEmail: string | undefined,
+  patientId: string
+): { savedAt: number; draft: PatientEditorDraft } | null {
+  const prefix = `halo_editorScribeDraft_v${DRAFT_STORAGE_VERSION}:`;
+  const suffix = `:${patientId}`;
+  const seenKeys = new Set<string>();
+  const candidates: { savedAt: number; draft: PatientEditorDraft }[] = [];
+
+  const pushKey = (key: string) => {
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+    const s = safeParseDraft(localStorage.getItem(key));
+    if (s && withinDraftTtl(s)) candidates.push(s);
+  };
+
+  pushKey(draftStorageKey(userEmail, patientId));
+  pushKey(draftStorageKey(undefined, patientId));
+  pushKey(inAppPatientMirrorKey(patientId));
+
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith(prefix) || !key.endsWith(suffix)) continue;
+      pushKey(key);
+    }
+  } catch {
+    /* private mode / quota */
+  }
+
+  if (candidates.length === 0) return null;
+
+  const withContent = candidates.filter((c) => draftHasContent(c.draft));
+  const pool = withContent.length > 0 ? withContent : candidates;
+
+  pool.sort((a, b) => {
+    const ac = draftHasContent(a.draft);
+    const bc = draftHasContent(b.draft);
+    if (ac !== bc) return ac ? -1 : 1;
+    const an = a.draft.notes?.length ?? 0;
+    const bn = b.draft.notes?.length ?? 0;
+    if (an !== bn) return bn - an;
+    const alen = (a.draft.pendingTranscript ?? '').length;
+    const blen = (b.draft.pendingTranscript ?? '').length;
+    if (alen !== blen) return blen - alen;
+    return b.savedAt - a.savedAt;
+  });
+
+  return pool[0];
+}
+
+/** Apply Drive backup only when it would not wipe richer local data (timestamp alone is not enough). */
+function shouldApplyRemoteWorkspace(
+  local: { savedAt: number; draft: PatientEditorDraft } | null,
+  remote: { savedAt: number; draft: PatientEditorDraft }
+): boolean {
+  const lHas = local && draftHasContent(local.draft);
+  const rHas = draftHasContent(remote.draft);
+  if (rHas && !lHas) return true;
+  if (lHas && !rHas) return false;
+  if (!rHas && !lHas) return remote.savedAt > (local?.savedAt ?? 0);
+  const ln = local!.draft.notes?.length ?? 0;
+  const rn = remote.draft.notes?.length ?? 0;
+  if (rn > ln) return true;
+  if (ln > rn) return false;
+  return remote.savedAt > local!.savedAt;
+}
+
 export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChange, onToast, userEmail, templateId: propTemplateId }) => {
   const scribeSessions = useRecordingSessions();
   const [files, setFiles] = useState<DriveFile[]>([]);
@@ -87,6 +169,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showAiPanel, setShowAiPanel] = useState(true);
+  /** After Drive workspace draft fetch finishes (avoids overwriting cloud with empty before first load). */
+  const [driveSyncReady, setDriveSyncReady] = useState(false);
 
   // Folder navigation state
   const [currentFolderId, setCurrentFolderId] = useState<string>(patient.id);
@@ -123,11 +207,28 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           content: n.content && n.content.length > 200_000 ? n.content.slice(-200_000) : n.content,
         })),
       };
-      localStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), draft: clipped }));
+      const savedAt = Date.now();
+      const payload = JSON.stringify({ savedAt, draft: clipped });
+      localStorage.setItem(key, payload);
+      try {
+        localStorage.setItem(inAppPatientMirrorKey(patientId), payload);
+      } catch {
+        /* mirror optional if quota tight */
+      }
     } catch {
       // ignore storage failures (quota/private mode)
     }
   }, [userEmail]);
+
+  /** Latest editor state for synchronous flush (tab close / background). */
+  const latestWorkspaceRef = useRef<PatientEditorDraft | null>(null);
+  latestWorkspaceRef.current = {
+    pendingTranscript,
+    notes,
+    activeNoteIndex,
+    selectedTemplatesForGenerate,
+    templateId,
+  };
 
   // File viewer state
   const [viewingFile, setViewingFile] = useState<DriveFile | null>(null);
@@ -160,6 +261,11 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const uploadIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isFolder = (file: DriveFile): boolean => file.mimeType === FOLDER_MIME_TYPE;
+
+  const filesForBrowser = useMemo(
+    () => files.filter((f) => !isHaloWorkspaceDraftFile(f.name)),
+    [files]
+  );
 
   // Load folder contents (with loading indicator)
   const loadFolderContents = useCallback(async (folderId: string) => {
@@ -412,7 +518,28 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       selectedTemplatesForGenerate,
       templateId,
     });
-  }, [pendingTranscript, notes, activeNoteIndex, selectedTemplatesForGenerate, templateId]);
+  }, [pendingTranscript, notes, activeNoteIndex, selectedTemplatesForGenerate, templateId, userEmail, persistDraftToStorage]);
+
+  // In-app only: flush to localStorage when leaving the tab or closing (React effects can be skipped on hard close)
+  useEffect(() => {
+    const pid = patient.id;
+    const flush = () => {
+      const d = latestWorkspaceRef.current;
+      if (!d) return;
+      persistDraftToStorage(pid, d);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    window.addEventListener('pagehide', flush);
+    window.addEventListener('beforeunload', flush);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      window.removeEventListener('beforeunload', flush);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [patient.id, persistDraftToStorage]);
 
   const handleNoteChange = useCallback((noteIndex: number, updates: { title?: string; content?: string }) => {
     setNotes(prev => prev.map((n, i) => i !== noteIndex ? n : {
@@ -425,8 +552,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
 
   const handleSaveAsDocx = useCallback(async (noteIndex: number) => {
     const note = notes[noteIndex];
-    const text = note ? buildNotePlainText(note) : '';
-    if (!text.trim()) return;
+    const plain = note ? buildNotePlainText(note) : '';
+    if (!plain.trim()) return;
+    const text = buildNoteTextWithPatientChart(patient, plain);
     setSavingNoteIndex(noteIndex);
     setStatus(AppStatus.SAVING);
     try {
@@ -445,7 +573,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     }
     setSavingNoteIndex(null);
     setStatus(AppStatus.IDLE);
-  }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast]);
+  }, [notes, patient, templateId, currentFolderId, loadFolderContents, onDataChange, onToast]);
 
   const handleSaveAll = useCallback(async () => {
     setStatus(AppStatus.SAVING);
@@ -453,8 +581,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     try {
       for (let i = 0; i < notes.length; i++) {
         const note = notes[i];
-        const text = buildNotePlainText(note);
-        if (!text.trim()) continue;
+        const plain = buildNotePlainText(note);
+        if (!plain.trim()) continue;
+        const text = buildNoteTextWithPatientChart(patient, plain);
         await saveNoteAsDocx({
           patientId: patient.id,
           template_id: note.template_id || templateId,
@@ -473,7 +602,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       onToast(getErrorMessage(err), 'error');
     }
     setStatus(AppStatus.IDLE);
-  }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast]);
+  }, [notes, patient, templateId, currentFolderId, loadFolderContents, onDataChange, onToast]);
 
   const handleEmail = useCallback((noteIndex: number) => {
     if (!userEmail?.trim()) {
@@ -486,8 +615,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
 
   const handleSendNoteEmail = useCallback(async () => {
     const note = notes[emailNoteIndex];
-    const text = note ? buildNotePlainText(note) : '';
-    if (!text.trim()) {
+    const plain = note ? buildNotePlainText(note) : '';
+    if (!plain.trim()) {
       onToast('Nothing to send.', 'info');
       return;
     }
@@ -495,6 +624,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       onToast('Your Google email is not available.', 'error');
       return;
     }
+    const text = buildNoteTextWithPatientChart(patient, plain);
     const tid = note.template_id || templateId;
     const docBase = sanitizeDocxFileBase(`${note.title || 'Note'} ${patient.name}`);
     setEmailNoteSending(true);
@@ -512,16 +642,13 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       onToast(getErrorMessage(err), 'error');
     }
     setEmailNoteSending(false);
-  }, [emailNoteIndex, notes, patient.name, templateId, userEmail, onToast]);
+  }, [emailNoteIndex, notes, patient, templateId, userEmail, onToast]);
 
   useEffect(() => {
     const pid = patient.id;
     const memoryDraft = patientEditorDraftsRef.current[pid];
-    const stored = safeParseDraft(localStorage.getItem(draftStorageKey(userEmail, pid)));
-    const draft =
-      stored && (Date.now() - stored.savedAt) <= DRAFT_TTL_MS
-        ? stored.draft
-        : memoryDraft;
+    const stored = pickStoredDraft(userEmail, pid);
+    const draft = stored ? stored.draft : memoryDraft;
     activeDraftPatientIdRef.current = pid;
     setPendingTranscript(draft?.pendingTranscript ?? null);
     setNotes(draft?.notes ?? []);
@@ -554,6 +681,87 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     return unsub;
   }, [patient.id, userEmail, propTemplateId, scribeSessions.subscribeTranscription, scribeSessions.consumeTranscriptionForPatient, onToast]);
 
+  // Load clinical workspace from Google Drive (Patient Notes / __Halo_clinical_workspace.json) — source of truth across devices
+  useEffect(() => {
+    setDriveSyncReady(false);
+    let cancelled = false;
+    const pid = patient.id;
+    (async () => {
+      try {
+        const remote = await fetchWorkspaceDraft(pid);
+        if (cancelled) return;
+        if (!remote || remote.draft === null) {
+          setDriveSyncReady(true);
+          return;
+        }
+        const parsed = safeParseDraft(
+          JSON.stringify({ savedAt: remote.savedAt, draft: remote.draft })
+        );
+        if (!parsed) {
+          setDriveSyncReady(true);
+          return;
+        }
+        const freshLocal = pickStoredDraft(userEmail, pid);
+        if (!shouldApplyRemoteWorkspace(freshLocal, parsed)) {
+          setDriveSyncReady(true);
+          return;
+        }
+        setPendingTranscript(parsed.draft.pendingTranscript ?? null);
+        setNotes(parsed.draft.notes ?? []);
+        setActiveNoteIndex(
+          Math.min(
+            parsed.draft.activeNoteIndex,
+            Math.max((parsed.draft.notes?.length ?? 1) - 1, 0)
+          )
+        );
+        setSelectedTemplatesForGenerate(
+          parsed.draft.selectedTemplatesForGenerate?.length
+            ? parsed.draft.selectedTemplatesForGenerate
+            : [DEFAULT_HALO_TEMPLATE_ID]
+        );
+        setTemplateId(parsed.draft.templateId || propTemplateId || DEFAULT_HALO_TEMPLATE_ID);
+        persistDraftToStorage(pid, parsed.draft);
+      } catch {
+        // offline or API error — keep local draft only
+      } finally {
+        if (!cancelled) setDriveSyncReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [patient.id, userEmail, propTemplateId, persistDraftToStorage]);
+
+  // Debounced sync to Drive (Patient Notes folder) — never upload an empty workspace (would wipe cloud backup)
+  useEffect(() => {
+    if (!driveSyncReady) return;
+    const pid = patient.id;
+    const draftPayload: PatientEditorDraft = {
+      pendingTranscript,
+      notes,
+      activeNoteIndex,
+      selectedTemplatesForGenerate,
+      templateId,
+    };
+    if (!draftHasContent(draftPayload)) return;
+    const t = window.setTimeout(() => {
+      const payload: ClinicalWorkspaceDraftFile = {
+        savedAt: Date.now(),
+        draft: draftPayload,
+      };
+      saveWorkspaceDraft(pid, payload).catch(() => {});
+    }, 2800);
+    return () => clearTimeout(t);
+  }, [
+    driveSyncReady,
+    patient.id,
+    pendingTranscript,
+    notes,
+    activeNoteIndex,
+    selectedTemplatesForGenerate,
+    templateId,
+  ]);
+
   const toggleTemplateForGenerate = useCallback((id: string) => {
     setSelectedTemplatesForGenerate(prev =>
       prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]
@@ -572,9 +780,10 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     setStatus(AppStatus.LOADING);
     const templateIds = selectedTemplatesForGenerate;
     const templateNames = Object.fromEntries(HALO_TEMPLATE_OPTIONS.map(t => [t.id, t.name]));
+    const inputText = buildClinicalNoteInputFromDictation(patient, pendingTranscript);
     try {
       const results = await Promise.all(
-        templateIds.map(id => generateNotePreview({ template_id: id, text: pendingTranscript }))
+        templateIds.map(id => generateNotePreview({ template_id: id, text: inputText }))
       );
       const combined: HaloNote[] = results.map((res, i) => {
         const tid = templateIds[i];
@@ -601,7 +810,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       onToast(getErrorMessage(err), 'error');
     }
     setStatus(AppStatus.IDLE);
-  }, [pendingTranscript, selectedTemplatesForGenerate, onToast]);
+  }, [patient, pendingTranscript, selectedTemplatesForGenerate, onToast]);
 
   // Autosave: every 30s mark dirty notes as saved (client-side only; no DOCX generation)
   useEffect(() => {
@@ -851,7 +1060,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
 
           {activeTab === 'overview' ? (
             <FileBrowser
-              files={files}
+              files={filesForBrowser}
               status={status}
               breadcrumbs={breadcrumbs}
               onNavigateToFolder={navigateToFolder}

@@ -1,4 +1,5 @@
 import type { Patient, DriveFile, LabAlert, ChatMessage, UserSettings, HaloNote } from '../../../shared/types';
+import type { ClinicalWorkspaceDraft, ClinicalWorkspaceDraftFile } from '../../../shared/workspaceDraft';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -217,6 +218,18 @@ export const createFolder = (parentId: string, name: string) =>
   request<DriveFile>(`/api/drive/patients/${parentId}/folder`, {
     method: 'POST',
     body: JSON.stringify({ name }),
+  });
+
+/** Editor + scribe state mirrored under Patient Notes as __Halo_clinical_workspace.json */
+export const fetchWorkspaceDraft = (patientId: string) =>
+  request<{ savedAt: number; draft: ClinicalWorkspaceDraft } | { draft: null }>(
+    `/api/drive/patients/${patientId}/workspace-draft`
+  );
+
+export const saveWorkspaceDraft = (patientId: string, body: ClinicalWorkspaceDraftFile) =>
+  request<{ ok: boolean }>(`/api/drive/patients/${patientId}/workspace-draft`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
   });
 
 // --- AI ---

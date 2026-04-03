@@ -1,5 +1,6 @@
 import mammoth from 'mammoth';
 import { config } from '../config';
+import { HALO_WORKSPACE_DRAFT_FILENAME } from '../../shared/workspaceDraft';
 
 // Polyfill browser APIs needed by pdf-parse (set up at module load time)
 // These are needed because pdf-parse's dependency pdfjs-dist uses them at module load
@@ -247,6 +248,68 @@ export async function downloadTextFromDrive(token: string, fileId: string): Prom
     throw new Error(`[Drive ${res.status}] Failed to download text for file ${fileId}`);
   }
   return res.text();
+}
+
+/** Find the hidden JSON workspace draft in a Patient Notes folder. */
+export async function findWorkspaceDraftFileIdInNotesFolder(
+  token: string,
+  notesFolderId: string
+): Promise<string | null> {
+  const q = encodeURIComponent(
+    `'${notesFolderId}' in parents and name='${HALO_WORKSPACE_DRAFT_FILENAME}' and mimeType!='application/vnd.google-apps.folder' and trashed=false`
+  );
+  const data = await driveRequest(token, `/files?q=${q}&fields=files(id)`);
+  return data.files?.[0]?.id ?? null;
+}
+
+/** Create or update `__Halo_clinical_workspace.json` in the patient’s Patient Notes folder. */
+export async function saveWorkspaceDraftFile(
+  token: string,
+  patientFolderId: string,
+  jsonText: string
+): Promise<{ fileId: string }> {
+  const notesFolderId = await getOrCreatePatientNotesFolder(token, patientFolderId);
+  const buffer = Buffer.from(jsonText, 'utf8');
+  const existingId = await findWorkspaceDraftFileIdInNotesFolder(token, notesFolderId);
+
+  if (existingId) {
+    const res = await fetchWithTimeout(
+      `${uploadApi}/files/${existingId}?uploadType=media`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: buffer,
+      }
+    );
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(`[Drive ${res.status}] Failed to update workspace draft: ${t}`);
+    }
+    return { fileId: existingId };
+  }
+
+  const fileId = await uploadToDrive(
+    token,
+    HALO_WORKSPACE_DRAFT_FILENAME,
+    'application/json',
+    notesFolderId,
+    buffer,
+    { haloSystem: 'clinicalWorkspaceDraft' }
+  );
+  return { fileId };
+}
+
+export async function loadWorkspaceDraftFile(
+  token: string,
+  patientFolderId: string
+): Promise<string | null> {
+  const notesFolderId = await getOrCreatePatientNotesFolder(token, patientFolderId);
+  const id = await findWorkspaceDraftFileIdInNotesFolder(token, notesFolderId);
+  if (!id) return null;
+  return downloadTextFromDrive(token, id);
 }
 
 /**

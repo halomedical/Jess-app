@@ -78,11 +78,13 @@ Use Markdown: ## for each main section heading, **bold** for inline labels where
 Only include content supported by the dictation; use "N/A" or "Not discussed" for empty sections.
 Do not invent clinical facts.
 
+If the input contains a "Patient identifiers" block (from the chart), you MUST copy name, surname, given names, date of birth, and sex from that block into any template fields or headings that ask for patient demographics. Do not leave those fields blank when identifiers are provided.
+
 Template key (for context): ${templateId}
 
 ${structureGuide}
 
-Dictation:
+Clinical input (chart identifiers may appear first, then dictation or note content):
 "${transcript}"
 `;
 }

@@ -121,8 +121,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="p-4 sm:p-6 safe-pad-t">
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-600 to-teal-800 shadow-lg shadow-teal-950/40 flex items-center justify-center text-white font-display font-bold text-sm tracking-tight border border-teal-500/30">
-              JJ
+            <div className="w-11 h-11 rounded-xl bg-white/90 shadow-md shadow-slate-900/10 flex items-center justify-center border border-slate-200/90 p-1 shrink-0">
+              <img
+                src="/halo-icon.png"
+                alt=""
+                className="w-full h-full object-contain"
+                draggable={false}
+              />
             </div>
             <div>
               <h1 className="font-display font-bold text-slate-800 text-base tracking-wide leading-tight">Dr Jess John</h1>

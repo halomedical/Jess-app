@@ -4,7 +4,8 @@ import { config } from '../config';
 import {
   driveRequest,
   getHaloRootFolder,
-  getOrCreatePatientNotesFolder,
+  loadWorkspaceDraftFile,
+  saveWorkspaceDraftFile,
   sanitizeString,
   isValidDate,
   isValidSex,
@@ -314,6 +315,58 @@ router.post('/patients/:id/folder', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Create folder error:', err);
     res.status(500).json({ error: 'Failed to create folder.' });
+  }
+});
+
+// GET /patients/:id/workspace-draft — clinical editor + scribe state stored in Patient Notes as JSON
+router.get('/patients/:id/workspace-draft', async (req: Request, res: Response) => {
+  try {
+    const token = req.session.accessToken!;
+    const patientFolderId = typeof req.params.id === 'string' ? req.params.id : req.params.id[0];
+    const raw = await loadWorkspaceDraftFile(token, patientFolderId);
+    if (!raw?.trim()) {
+      res.json({ draft: null });
+      return;
+    }
+    let data: unknown;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      res.status(400).json({ error: 'Invalid workspace draft file on Drive.' });
+      return;
+    }
+    const obj = data as { savedAt?: unknown; draft?: unknown };
+    if (typeof obj.savedAt !== 'number' || obj.draft === undefined || obj.draft === null) {
+      res.json({ draft: null });
+      return;
+    }
+    res.json({ savedAt: obj.savedAt, draft: obj.draft });
+  } catch (err) {
+    console.error('workspace-draft GET:', err);
+    res.status(500).json({ error: 'Failed to load workspace draft.' });
+  }
+});
+
+// PUT /patients/:id/workspace-draft
+router.put('/patients/:id/workspace-draft', async (req: Request, res: Response) => {
+  try {
+    const token = req.session.accessToken!;
+    const patientFolderId = typeof req.params.id === 'string' ? req.params.id : req.params.id[0];
+    const { savedAt, draft } = req.body as { savedAt?: unknown; draft?: unknown };
+    if (typeof savedAt !== 'number' || draft === undefined || draft === null || typeof draft !== 'object') {
+      res.status(400).json({ error: 'Invalid workspace draft payload.' });
+      return;
+    }
+    const json = JSON.stringify({ savedAt, draft });
+    if (json.length > 12 * 1024 * 1024) {
+      res.status(400).json({ error: 'Workspace draft too large.' });
+      return;
+    }
+    await saveWorkspaceDraftFile(token, patientFolderId, json);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('workspace-draft PUT:', err);
+    res.status(500).json({ error: 'Failed to save workspace draft.' });
   }
 });
 

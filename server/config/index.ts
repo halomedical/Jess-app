@@ -46,12 +46,12 @@ export const config = {
   haloUserId: process.env.HALO_USER_ID || DEFAULT_HALO_API_USER_ID,
 
   // Template request email (optional)
-  adminEmail: process.env.ADMIN_EMAIL || 'admin@halo.africa',
-  smtpHost: process.env.SMTP_HOST || '',
+  adminEmail: (process.env.ADMIN_EMAIL || 'admin@halo.africa').trim(),
+  smtpHost: (process.env.SMTP_HOST || '').trim(),
   smtpPort: Number(process.env.SMTP_PORT) || 587,
   smtpSecure: process.env.SMTP_SECURE === 'true',
-  smtpUser: process.env.SMTP_USER || '',
-  smtpPass: process.env.SMTP_PASS || '',
+  smtpUser: (process.env.SMTP_USER || '').trim(),
+  smtpPass: (process.env.SMTP_PASS || '').trim(),
   /** Optional; defaults to SMTP_USER. Use when your provider requires a verified From. */
   smtpFrom: process.env.SMTP_FROM || '',
 } as const;

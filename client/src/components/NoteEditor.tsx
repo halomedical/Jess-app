@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Save, FileDown, Mail, Loader2, Eye, Pencil } from 'lucide-react';
 import type { HaloNote } from '../../../shared/types';
 import { AppStatus } from '../../../shared/types';
+import { buildNotePlainText } from '../../../shared/notePlainText';
 
 /** Parse note content into labeled fields (e.g. "Subjective:", "Plan:" blocks) for preview */
 function parseNoteFields(content: string): Array<{ label: string; body: string }> {
@@ -51,6 +52,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 }) => {
   const activeNote = notes[activeIndex];
   const busy = status === AppStatus.FILING || status === AppStatus.SAVING;
+  const notePlain = useMemo(() => (activeNote ? buildNotePlainText(activeNote) : ''), [activeNote]);
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('preview');
   // Use actual fields from generate_note when present; otherwise parse content into fields
   const fields = useMemo(() => {
@@ -175,7 +177,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           <button
             type="button"
             onClick={() => onSaveAsDocx(activeIndex)}
-            disabled={busy || !activeNote.content.trim()}
+            disabled={busy || !notePlain.trim()}
             className="flex items-center gap-2 bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 disabled:opacity-50 font-medium transition-all shadow-sm text-sm"
           >
             {savingNoteIndex === activeIndex ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
@@ -184,7 +186,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           <button
             type="button"
             onClick={() => onEmail(activeIndex)}
-            disabled={busy || !activeNote.content.trim()}
+            disabled={busy || !notePlain.trim()}
             className="flex items-center gap-2 bg-slate-600 text-white px-4 py-2 rounded-lg hover:bg-slate-700 disabled:opacity-50 font-medium transition-all shadow-sm text-sm"
           >
             <Mail className="w-4 h-4" /> Email

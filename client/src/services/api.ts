@@ -285,12 +285,14 @@ export const saveNoteAsDocx = (params: {
     }),
   });
 
-/** Email the current note as plain text (requires server SMTP). */
+/** Email the current note to the signed-in user's address; From is admin@halo.africa (server). Attaches Word when template_id is set (default). */
 export const sendClinicalNoteEmail = (params: {
-  to: string;
   subject?: string;
   text: string;
   patientName?: string;
+  template_id?: string;
+  attachDocx?: boolean;
+  docxFileName?: string;
 }) =>
   request<{ ok: boolean; message: string }>('/api/email-note', {
     method: 'POST',

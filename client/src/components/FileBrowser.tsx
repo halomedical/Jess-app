@@ -19,6 +19,8 @@ interface FileBrowserProps {
   onDeleteFile: (file: DriveFile) => void;
   onViewFile: (file: DriveFile) => void;
   onCreateFolder: () => void;
+  /** Folders matching this (e.g. system "Patient Notes") cannot be renamed or deleted. */
+  isFolderProtected?: (folder: DriveFile) => boolean;
 }
 
 const isFolder = (file: DriveFile): boolean => file.mimeType === FOLDER_MIME_TYPE;
@@ -40,7 +42,7 @@ const FileSkeleton: React.FC = () => (
 export const FileBrowser: React.FC<FileBrowserProps> = ({
   files, status, breadcrumbs,
   onNavigateToFolder, onNavigateBack, onNavigateToBreadcrumb,
-  onStartEditFile, onDeleteFile, onViewFile, onCreateFolder,
+  onStartEditFile, onDeleteFile, onViewFile, onCreateFolder, isFolderProtected,
 }) => {
   const isAtRoot = breadcrumbs.length <= 1;
   const folders = files.filter(isFolder);
@@ -113,7 +115,9 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                   <FolderOpen size={13} className="text-slate-400" />
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Folders ({folders.length})</span>
                 </div>
-                {folders.map(folder => (
+                {folders.map(folder => {
+                  const protectedFolder = isFolderProtected?.(folder) ?? false;
+                  return (
                   <div
                     key={folder.id}
                     className="group flex items-center p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-teal-200 transition-all duration-200 cursor-pointer"
@@ -127,17 +131,29 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                       <p className="text-xs text-slate-500 mt-1">Folder &bull; {folder.createdTime}</p>
                     </div>
                     <div className="flex items-center gap-1">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); onStartEditFile(folder); }}
-                        className="p-2 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                        title="Rename"
-                      >
-                        <Pencil size={16} />
-                      </button>
+                      {!protectedFolder && (
+                        <>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onStartEditFile(folder); }}
+                            className="p-2 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                            title="Rename folder"
+                          >
+                            <Pencil size={16} />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onDeleteFile(folder); }}
+                            className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                            title="Delete folder"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </>
+                      )}
                       <ChevronRight size={18} className="text-slate-300 group-hover:text-teal-500 transition-colors" />
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </>
             )}
 

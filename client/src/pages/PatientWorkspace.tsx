@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Patient, DriveFile, LabAlert, BreadcrumbItem, ChatMessage, HaloNote } from '../../../shared/types';
 import { HALO_TEMPLATE_OPTIONS, DEFAULT_HALO_TEMPLATE_ID } from '../../../shared/haloTemplates';
+import { buildNotePlainText } from '../../../shared/notePlainText';
 import { AppStatus, FOLDER_MIME_TYPE } from '../../../shared/types';
 
 import {
@@ -21,7 +22,7 @@ import { FileViewer } from '../components/FileViewer';
 import { FileBrowser } from '../components/FileBrowser';
 import { NoteEditor } from '../components/NoteEditor';
 import { PatientChat } from '../components/PatientChat';
-import { getErrorMessage } from '../utils/formatting';
+import { getErrorMessage, formatDocumentDateDisplay, sanitizeDocxFileBase } from '../utils/formatting';
 
 interface Props {
   patient: Patient;
@@ -147,7 +148,6 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   // Email note modal
   const [showEmailNoteModal, setShowEmailNoteModal] = useState(false);
   const [emailNoteIndex, setEmailNoteIndex] = useState(0);
-  const [emailNoteRecipient, setEmailNoteRecipient] = useState("");
   const [emailNoteSending, setEmailNoteSending] = useState(false);
 
   // Upload destination picker state
@@ -425,15 +425,16 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
 
   const handleSaveAsDocx = useCallback(async (noteIndex: number) => {
     const note = notes[noteIndex];
-    if (!note?.content.trim()) return;
+    const text = note ? buildNotePlainText(note) : '';
+    if (!text.trim()) return;
     setSavingNoteIndex(noteIndex);
     setStatus(AppStatus.SAVING);
     try {
       await saveNoteAsDocx({
         patientId: patient.id,
         template_id: note.template_id || templateId,
-        text: note.content,
-        fileName: (note.title || 'Note').replace(/[^\w\s-]/g, '').trim() || undefined,
+        text,
+        fileName: sanitizeDocxFileBase(note.title || 'Note') || undefined,
       });
       setNotes(prev => prev.map((n, i) => i !== noteIndex ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }));
       await loadFolderContents(currentFolderId);
@@ -452,12 +453,13 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     try {
       for (let i = 0; i < notes.length; i++) {
         const note = notes[i];
-        if (!note.content.trim()) continue;
+        const text = buildNotePlainText(note);
+        if (!text.trim()) continue;
         await saveNoteAsDocx({
           patientId: patient.id,
           template_id: note.template_id || templateId,
-          text: note.content,
-          fileName: (note.title || `Note ${i + 1}`).replace(/[^\w\s-]/g, '').trim() || undefined,
+          text,
+          fileName: sanitizeDocxFileBase(note.title || `Note ${i + 1}`) || undefined,
         });
         setNotes(prev => prev.map((n, j) => j !== i ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }));
         saved++;
@@ -474,37 +476,43 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   }, [notes, patient.id, templateId, currentFolderId, loadFolderContents, onDataChange, onToast]);
 
   const handleEmail = useCallback((noteIndex: number) => {
+    if (!userEmail?.trim()) {
+      onToast('Your Google email is not available. Sign out and sign in again.', 'error');
+      return;
+    }
     setEmailNoteIndex(noteIndex);
-    setEmailNoteRecipient("");
     setShowEmailNoteModal(true);
-  }, []);
+  }, [userEmail, onToast]);
 
   const handleSendNoteEmail = useCallback(async () => {
     const note = notes[emailNoteIndex];
-    const to = emailNoteRecipient.trim();
-    if (!note?.content.trim()) {
+    const text = note ? buildNotePlainText(note) : '';
+    if (!text.trim()) {
       onToast('Nothing to send.', 'info');
       return;
     }
-    if (!to) {
-      onToast('Enter a recipient email address.', 'info');
+    if (!userEmail?.trim()) {
+      onToast('Your Google email is not available.', 'error');
       return;
     }
+    const tid = note.template_id || templateId;
+    const docBase = sanitizeDocxFileBase(`${note.title || 'Note'} ${patient.name}`);
     setEmailNoteSending(true);
     try {
-      await sendClinicalNoteEmail({
-        to,
+      const res = await sendClinicalNoteEmail({
         subject: `Clinical note — ${patient.name} — ${note.title || 'Note'}`,
-        text: note.content,
+        text,
         patientName: patient.name,
+        template_id: tid,
+        docxFileName: docBase || undefined,
       });
       setShowEmailNoteModal(false);
-      onToast('Email sent.', 'success');
+      onToast(res.message?.trim() ? res.message : `Note sent to ${userEmail}`, 'success');
     } catch (err) {
       onToast(getErrorMessage(err), 'error');
     }
     setEmailNoteSending(false);
-  }, [emailNoteIndex, emailNoteRecipient, notes, patient.name, onToast]);
+  }, [emailNoteIndex, notes, patient.name, templateId, userEmail, onToast]);
 
   useEffect(() => {
     const pid = patient.id;
@@ -577,7 +585,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           : pendingTranscript;
         return {
           noteId: first?.noteId ?? `note-${tid}-${Date.now()}`,
-          title: first?.title ?? name,
+          title: `${name} ${formatDocumentDateDisplay()}`,
           content,
           template_id: tid,
           lastSavedAt: new Date().toISOString(),
@@ -696,7 +704,14 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     }
   };
 
+  const isPatientNotesSystemFolder = (f: DriveFile) =>
+    f.mimeType === FOLDER_MIME_TYPE && f.name === 'Patient Notes';
+
   const startEditFile = (file: DriveFile) => {
+    if (isPatientNotesSystemFolder(file)) {
+      onToast('The Patient Notes folder cannot be renamed (used for clinical notes).', 'info');
+      return;
+    }
     setEditingFile(file);
     setEditFileName(file.name);
   };
@@ -722,11 +737,17 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
 
   const confirmDeleteFile = async () => {
     if (!fileToDelete) return;
+    if (isPatientNotesSystemFolder(fileToDelete)) {
+      onToast('The Patient Notes folder cannot be deleted (used for clinical notes).', 'info');
+      setFileToDelete(null);
+      return;
+    }
     try {
       await deleteFile(fileToDelete.id);
       setFileToDelete(null);
       await loadFolderContents(currentFolderId);
-      onToast('File moved to trash.', 'success');
+      const kind = fileToDelete.mimeType === FOLDER_MIME_TYPE ? 'Folder' : 'File';
+      onToast(`${kind} moved to trash.`, 'success');
     } catch (err) {
       onToast(getErrorMessage(err), 'error');
     }
@@ -840,6 +861,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               onDeleteFile={setFileToDelete}
               onViewFile={setViewingFile}
               onCreateFolder={() => setShowCreateFolderModal(true)}
+              isFolderProtected={isPatientNotesSystemFolder}
             />
           ) : activeTab === 'notes' ? (
             pendingTranscript ? (
@@ -1011,9 +1033,14 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               <div className="w-14 h-14 bg-rose-50 rounded-full flex items-center justify-center mb-3 text-rose-500">
                 <Trash2 size={28} />
               </div>
-              <h3 className="text-lg font-bold text-slate-800">Delete File?</h3>
+              <h3 className="text-lg font-bold text-slate-800">
+                {fileToDelete.mimeType === FOLDER_MIME_TYPE ? 'Delete folder?' : 'Delete file?'}
+              </h3>
               <p className="text-slate-500 mt-2 text-sm px-4">
-                Move <span className="font-bold text-slate-700">{fileToDelete.name}</span> to trash?
+                Move <span className="font-bold text-slate-700">{fileToDelete.name}</span> to Google Drive trash?
+                {fileToDelete.mimeType === FOLDER_MIME_TYPE && (
+                  <span className="block mt-2 text-xs text-slate-400">Everything inside this folder will also be trashed.</span>
+                )}
               </p>
             </div>
             <div className="flex gap-3">
@@ -1114,47 +1141,38 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               <h3 className="text-lg font-bold text-slate-800">Email note</h3>
               <button
                 type="button"
-                onClick={() => { setShowEmailNoteModal(false); setEmailNoteRecipient(""); }}
+                onClick={() => setShowEmailNoteModal(false)}
                 className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition"
               >
                 <X size={20} />
               </button>
             </div>
-            <p className="text-xs text-slate-500 mb-4">
-              Sends the active note as plain text. The recipient can reply to your signed-in Google address when the server supports it.
+            <p className="text-xs text-slate-500 mb-3">
+              Sends a plain-text copy of this note and a Word (.docx) attachment (same format as Save as DOCX) to{' '}
+              <span className="font-semibold text-slate-700">{userEmail}</span> (your signed-in Google account). The message is sent from{' '}
+              <span className="font-semibold text-slate-700">admin@halo.africa</span> via your Outlook SMTP settings.
             </p>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-slate-600 mb-1.5">Recipient</label>
-                <input
-                  type="email"
-                  value={emailNoteRecipient}
-                  onChange={(e) => setEmailNoteRecipient(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !emailNoteSending) void handleSendNoteEmail(); }}
-                  placeholder="colleague@hospital.org"
-                  className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition"
-                  autoFocus
-                  autoComplete="email"
-                />
-              </div>
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => { setShowEmailNoteModal(false); setEmailNoteRecipient(""); }}
-                  className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleSendNoteEmail()}
-                  disabled={emailNoteSending || !emailNoteRecipient.trim()}
-                  className="flex-1 bg-slate-600 hover:bg-slate-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-slate-600/20 transition disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {emailNoteSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail size={16} />}
-                  Send
-                </button>
-              </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowEmailNoteModal(false)}
+                className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSendNoteEmail()}
+                disabled={
+                  emailNoteSending ||
+                  !userEmail?.trim() ||
+                  !buildNotePlainText(notes[emailNoteIndex] ?? { content: '', fields: undefined }).trim()
+                }
+                className="flex-1 bg-slate-600 hover:bg-slate-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-slate-600/20 transition disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {emailNoteSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail size={16} />}
+                Send to my email
+              </button>
             </div>
           </div>
         </div>

@@ -43,6 +43,25 @@ export function getFriendlyFileType(mimeType: string): string {
   return cleaned.length > 12 ? cleaned.slice(0, 12).toUpperCase() : cleaned.toUpperCase();
 }
 
+/** DD/MM/YYYY for note titles (e.g. Echo Report 02/04/2026). */
+export function formatDocumentDateDisplay(d: Date = new Date()): string {
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+/**
+ * Safe base name for DOCX upload: slashes become hyphens, then strip risky characters.
+ */
+export function sanitizeDocxFileBase(name: string): string {
+  return name
+    .replace(/\//g, '-')
+    .replace(/[^\w\s-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** Parse inline markdown (bold) to React elements */
 export function renderInlineMarkdown(text: string): React.ReactNode[] {
   const parts = text.split(/(\*\*.*?\*\*)/g);

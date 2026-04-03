@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/requireAuth';
 import { config } from '../config';
-import { createMailTransporter, getSmtpFromAddress, isSmtpConfigured } from '../services/mail';
+import { createMailTransporter, getSmtpFromAddress, getSmtpSendErrorMessage, isSmtpConfigured } from '../services/mail';
 
 const router = Router();
 router.use(requireAuth);
@@ -76,9 +76,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     res.json({ ok: true, message: 'Request sent. We will get back to you.' });
   } catch (err) {
     console.error('[request-template] Send failed:', err);
-    res.status(500).json({
-      error: 'Failed to send your request. Please try again or contact support.',
-    });
+    res.status(500).json({ error: getSmtpSendErrorMessage(err) });
   }
 });
 

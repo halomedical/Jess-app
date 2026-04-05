@@ -3,6 +3,7 @@ import type { Patient, DriveFile, LabAlert, BreadcrumbItem, ChatMessage, HaloNot
 import { HALO_TEMPLATE_OPTIONS, DEFAULT_HALO_TEMPLATE_ID } from '../../../shared/haloTemplates';
 import { buildNotePlainText } from '../../../shared/notePlainText';
 import { buildClinicalNoteInputFromDictation, buildNoteTextWithPatientChart } from '../../../shared/patientChartContext';
+import { formatAgeFromIsoDob } from '../../../shared/patientDemographics';
 import type { ClinicalWorkspaceDraft as PatientEditorDraft, ClinicalWorkspaceDraftFile } from '../../../shared/workspaceDraft';
 import { isHaloWorkspaceDraftFile } from '../../../shared/workspaceDraft';
 import { AppStatus, FOLDER_MIME_TYPE } from '../../../shared/types';
@@ -11,13 +12,13 @@ import {
   fetchFiles, fetchFilesFirstPage, fetchFilesPage, fetchFolderContents, uploadFile, updatePatient,
   updateFileMetadata, generatePatientSummary, analyzeAndRenameImage,
   extractLabAlerts, deleteFile, createFolder, askHaloStream,
-  generateNotePreview, saveNoteAsDocx, sendClinicalNoteEmail,
+  generateNotePreview, saveNoteAsDocx, sendClinicalNoteEmail, sendWorkspaceFileEmail,
   fetchWorkspaceDraft, saveWorkspaceDraft,
 } from '../services/api';
 import {
   Upload, Calendar, Clock, CheckCircle2, ChevronLeft, Loader2,
   CloudUpload, Pencil, X, Trash2, FolderOpen, MessageCircle,
-  FolderPlus, ChevronRight, Mail,
+  FolderPlus, ChevronRight, Mail, Phone, Hash,
 } from 'lucide-react';
 import { SmartSummary } from '../features/smart-summary/SmartSummary';
 import { LabAlerts } from '../features/lab-alerts/LabAlerts';
@@ -41,6 +42,28 @@ interface Props {
 const DRAFT_STORAGE_VERSION = 1 as const;
 /** Local draft retention (notes should not vanish because of age). */
 const DRAFT_TTL_MS = 365 * 24 * 60 * 60 * 1000; // 1 year
+
+const WORKSPACE_TAB_STORAGE_PREFIX = 'halo_patientWorkspaceTab_v1:';
+
+type WorkspaceTab = 'overview' | 'notes' | 'chat';
+
+function readStoredWorkspaceTab(patientId: string): WorkspaceTab {
+  try {
+    const v = sessionStorage.getItem(`${WORKSPACE_TAB_STORAGE_PREFIX}${patientId}`);
+    if (v === 'overview' || v === 'notes' || v === 'chat') return v;
+  } catch {
+    /* private mode */
+  }
+  return 'overview';
+}
+
+function persistWorkspaceTab(patientId: string, tab: WorkspaceTab): void {
+  try {
+    sessionStorage.setItem(`${WORKSPACE_TAB_STORAGE_PREFIX}${patientId}`, tab);
+  } catch {
+    /* private mode */
+  }
+}
 
 function draftStorageKey(userEmail: string | undefined, patientId: string): string {
   const who = (userEmail || 'anon').toLowerCase().trim() || 'anon';
@@ -160,13 +183,22 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [pendingTranscript, setPendingTranscript] = useState<string | null>(null);
   const [selectedTemplatesForGenerate, setSelectedTemplatesForGenerate] = useState<string[]>([DEFAULT_HALO_TEMPLATE_ID]);
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
-  const [activeTab, setActiveTab] = useState<'overview' | 'notes' | 'chat'>('overview');
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>(() => readStoredWorkspaceTab(patient.id));
   const [savingNoteIndex, setSavingNoteIndex] = useState<number | null>(null);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showAiPanel, setShowAiPanel] = useState(true);
   /** After Drive workspace draft fetch finishes (avoids overwriting cloud with empty before first load). */
   const [driveSyncReady, setDriveSyncReady] = useState(false);
+
+  const setWorkspaceTab = useCallback((tab: WorkspaceTab) => {
+    setActiveTab(tab);
+    persistWorkspaceTab(patient.id, tab);
+  }, [patient.id]);
+
+  useEffect(() => {
+    setActiveTab(readStoredWorkspaceTab(patient.id));
+  }, [patient.id]);
 
   // Folder navigation state
   const [currentFolderId, setCurrentFolderId] = useState<string>(patient.id);
@@ -178,14 +210,29 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [editName, setEditName] = useState("");
   const [editDob, setEditDob] = useState("");
   const [editSex, setEditSex] = useState<'M' | 'F'>('M');
+  const [editFolderNumber, setEditFolderNumber] = useState('');
+  const [editContactNumber, setEditContactNumber] = useState('');
 
   const [editingFile, setEditingFile] = useState<DriveFile | null>(null);
   const [editFileName, setEditFileName] = useState("");
 
   const [fileToDelete, setFileToDelete] = useState<DriveFile | null>(null);
+  const [driveFileEmailTarget, setDriveFileEmailTarget] = useState<DriveFile | null>(null);
+  const [driveFileEmailSending, setDriveFileEmailSending] = useState(false);
 
   const patientRef = useRef(patient);
   patientRef.current = patient;
+
+  const patientChartPayload = useMemo(
+    () => ({
+      name: patient.name,
+      dob: patient.dob,
+      sex: (patient.sex === 'F' ? 'F' : 'M') as 'M' | 'F',
+      folderNumber: patient.folderNumber,
+      contactNumber: patient.contactNumber,
+    }),
+    [patient.name, patient.dob, patient.sex, patient.folderNumber, patient.contactNumber]
+  );
   const patientEditorDraftsRef = useRef<Record<string, PatientEditorDraft>>({});
   const activeDraftPatientIdRef = useRef(patient.id);
 
@@ -245,6 +292,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   // Email note modal
   const [showEmailNoteModal, setShowEmailNoteModal] = useState(false);
   const [emailNoteIndex, setEmailNoteIndex] = useState(0);
+  /** What to send: structured note, raw dictation, or chart identifiers only. */
+  const [emailComposeMode, setEmailComposeMode] = useState<'note' | 'transcript' | 'chart_only'>('note');
   const [emailNoteSending, setEmailNoteSending] = useState(false);
 
   // Upload destination picker state
@@ -606,40 +655,79 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       onToast('Your Google email is not available. Sign out and sign in again.', 'error');
       return;
     }
+    setEmailComposeMode('note');
     setEmailNoteIndex(noteIndex);
     setShowEmailNoteModal(true);
   }, [userEmail, onToast]);
 
   const handleSendNoteEmail = useCallback(async () => {
-    const note = notes[emailNoteIndex];
-    const plain = note ? buildNotePlainText(note) : '';
-    if (!plain.trim()) {
-      onToast('Nothing to send.', 'info');
-      return;
-    }
     if (!userEmail?.trim()) {
       onToast('Your Google email is not available.', 'error');
       return;
     }
+    const note = notes[emailNoteIndex];
+    let plain = '';
+    let subject = `Patient update — ${patient.name}`;
+    let tid = templateId;
+    let docBase = sanitizeDocxFileBase(`${patient.name} chart`);
+
+    if (emailComposeMode === 'note') {
+      plain = note ? buildNotePlainText(note) : '';
+      tid = note?.template_id || templateId;
+      subject = `Clinical note — ${patient.name} — ${note?.title || 'Note'}`;
+      docBase = sanitizeDocxFileBase(`${note?.title || 'Note'} ${patient.name}`);
+    } else if (emailComposeMode === 'transcript') {
+      plain = (pendingTranscript ?? '').trim();
+      subject = `Clinical dictation — ${patient.name}`;
+      docBase = sanitizeDocxFileBase(`Dictation ${patient.name}`);
+    } else {
+      plain = '';
+      subject = `Patient chart — ${patient.name}`;
+      docBase = sanitizeDocxFileBase(`Patient chart ${patient.name}`);
+    }
+
     const text = buildNoteTextWithPatientChart(patient, plain);
-    const tid = note.template_id || templateId;
-    const docBase = sanitizeDocxFileBase(`${note.title || 'Note'} ${patient.name}`);
     setEmailNoteSending(true);
     try {
       const res = await sendClinicalNoteEmail({
-        subject: `Clinical note — ${patient.name} — ${note.title || 'Note'}`,
+        subject,
         text,
         patientName: patient.name,
         template_id: tid,
         docxFileName: docBase || undefined,
       });
       setShowEmailNoteModal(false);
-      onToast(res.message?.trim() ? res.message : `Note sent to ${userEmail}`, 'success');
+      onToast(res.message?.trim() ? res.message : `Email sent to ${userEmail}`, 'success');
     } catch (err) {
       onToast(getErrorMessage(err), 'error');
     }
     setEmailNoteSending(false);
-  }, [emailNoteIndex, notes, patient, templateId, userEmail, onToast]);
+  }, [emailComposeMode, emailNoteIndex, notes, patient, pendingTranscript, templateId, userEmail, onToast]);
+
+  /** Email anytime: prefer active note text, else dictation, else chart identifiers only. */
+  const openEmailFromToolbar = useCallback(() => {
+    if (!userEmail?.trim()) {
+      onToast('Your Google email is not available. Sign out and sign in again.', 'error');
+      return;
+    }
+    setWorkspaceTab('notes');
+    const notePlain =
+      notes.length > 0
+        ? buildNotePlainText(notes[Math.min(activeNoteIndex, notes.length - 1)]).trim()
+        : '';
+    const dict = (pendingTranscript ?? '').trim();
+    if (notes.length > 0 && notePlain) {
+      setEmailComposeMode('note');
+      setEmailNoteIndex(Math.min(activeNoteIndex, notes.length - 1));
+    } else if (dict) {
+      setEmailComposeMode('transcript');
+      setEmailNoteIndex(0);
+    } else {
+      setEmailComposeMode('chart_only');
+      setEmailNoteIndex(0);
+    }
+    setShowEmailNoteModal(true);
+  }, [userEmail, notes, activeNoteIndex, pendingTranscript, setWorkspaceTab, onToast]);
 
   useEffect(() => {
     const pid = patient.id;
@@ -669,14 +757,14 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         return `${trimmedPrev}\n\n${trimmedText}`;
       });
       setSelectedTemplatesForGenerate([DEFAULT_HALO_TEMPLATE_ID]);
-      setActiveTab('notes');
+      setWorkspaceTab('notes');
     };
 
     const unsub = scribeSessions.subscribeTranscription(pid, applyTranscript);
     const backlog = scribeSessions.consumeTranscriptionForPatient(pid);
     if (backlog != null) applyTranscript(backlog);
     return unsub;
-  }, [patient.id, userEmail, propTemplateId, scribeSessions.subscribeTranscription, scribeSessions.consumeTranscriptionForPatient, onToast]);
+  }, [patient.id, userEmail, propTemplateId, scribeSessions.subscribeTranscription, scribeSessions.consumeTranscriptionForPatient, onToast, setWorkspaceTab]);
 
   // Load clinical workspace from Google Drive (Patient Notes / __Halo_clinical_workspace.json) — source of truth across devices
   useEffect(() => {
@@ -900,13 +988,21 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     setEditName(patient.name);
     setEditDob(patient.dob);
     setEditSex(patient.sex || 'M');
+    setEditFolderNumber(patient.folderNumber ?? '');
+    setEditContactNumber(patient.contactNumber ?? '');
     setEditingPatient(true);
   };
 
   const savePatientEdit = async () => {
     if (!editName.trim() || !editDob) return;
     try {
-      await updatePatient(patient.id, { name: editName, dob: editDob, sex: editSex });
+      await updatePatient(patient.id, {
+        name: editName,
+        dob: editDob,
+        sex: editSex,
+        folderNumber: editFolderNumber.trim(),
+        contactNumber: editContactNumber.trim(),
+      });
       setEditingPatient(false);
       onDataChange();
       onToast('Patient details updated.', 'success');
@@ -914,6 +1010,26 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       onToast(getErrorMessage(err), 'error');
     }
   };
+
+  const handleSendDriveFileEmail = useCallback(async () => {
+    const f = driveFileEmailTarget;
+    if (!f || !userEmail?.trim()) return;
+    setDriveFileEmailSending(true);
+    try {
+      const res = await sendWorkspaceFileEmail({
+        fileId: f.id,
+        fileName: f.name,
+        mimeType: f.mimeType,
+        fileUrl: f.url,
+        patient: patientChartPayload,
+      });
+      setDriveFileEmailTarget(null);
+      onToast(res.message?.trim() ? res.message : `Email sent to ${userEmail}`, 'success');
+    } catch (err) {
+      onToast(getErrorMessage(err), 'error');
+    }
+    setDriveFileEmailSending(false);
+  }, [driveFileEmailTarget, userEmail, patientChartPayload, onToast]);
 
   const isPatientNotesSystemFolder = (f: DriveFile) =>
     f.mimeType === FOLDER_MIME_TYPE && f.name === 'Patient Notes';
@@ -965,6 +1081,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   };
 
   const hasAiContent = alerts.length > 0 || summary.length > 0;
+  const emailActionsBusy = status === AppStatus.FILING || status === AppStatus.SAVING;
+  const stickyEmailDisabled = emailActionsBusy || !userEmail?.trim();
+  const patientAgeDisplay = formatAgeFromIsoDob(patient.dob);
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-white relative w-full max-w-[100vw]">
@@ -981,10 +1100,25 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                 <Pencil size={16} />
               </button>
             </div>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-500 mt-2 font-medium">
-              <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap"><Calendar className="w-3.5 h-3.5" /> {patient.dob}</span>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-slate-500 mt-2 font-medium">
+              {patient.folderNumber?.trim() ? (
+                <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap">
+                  <Hash className="w-3.5 h-3.5 shrink-0" /> Folder no. {patient.folderNumber.trim()}
+                </span>
+              ) : null}
+              <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap">
+                <Calendar className="w-3.5 h-3.5 shrink-0" /> DOB {patient.dob}
+              </span>
+              <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap">
+                Age: {patientAgeDisplay}
+              </span>
               <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap">Sex: {patient.sex || 'Unknown'}</span>
-              <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap"><Clock className="w-3.5 h-3.5" /> Last: {patient.lastVisit}</span>
+              {patient.contactNumber?.trim() ? (
+                <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap">
+                  <Phone className="w-3.5 h-3.5 shrink-0" /> {patient.contactNumber.trim()}
+                </span>
+              ) : null}
+              <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap"><Clock className="w-3.5 h-3.5 shrink-0" /> Last: {patient.lastVisit}</span>
             </div>
           </div>
         </div>
@@ -1051,12 +1185,28 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             </div>
           )}
 
-          {/* Tabs */}
-          <div className="flex gap-6 md:gap-8 border-b border-slate-200 mb-6 overflow-x-auto">
-            <button onClick={() => setActiveTab('overview')} className={`pb-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'overview' ? 'border-teal-600 text-teal-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Active Workspace</button>
-            <button onClick={() => setActiveTab('notes')} className={`pb-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap ${activeTab === 'notes' ? 'border-teal-600 text-teal-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Editor &amp; Scribe</button>
-            <button onClick={() => setActiveTab('chat')} className={`pb-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'chat' ? 'border-teal-600 text-teal-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
-              <MessageCircle size={14} /> Ask HALO
+          {/* Tabs + persistent Email (any tab, when notes exist) */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between border-b border-slate-200 mb-6">
+            <div className="flex gap-6 md:gap-8 overflow-x-auto min-w-0 pb-px [-webkit-overflow-scrolling:touch]">
+              <button type="button" onClick={() => setWorkspaceTab('overview')} className={`pb-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap shrink-0 ${activeTab === 'overview' ? 'border-teal-600 text-teal-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Active Workspace</button>
+              <button type="button" onClick={() => setWorkspaceTab('notes')} className={`pb-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap shrink-0 ${activeTab === 'notes' ? 'border-teal-600 text-teal-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Editor &amp; Scribe</button>
+              <button type="button" onClick={() => setWorkspaceTab('chat')} className={`pb-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap flex items-center gap-1.5 shrink-0 ${activeTab === 'chat' ? 'border-teal-600 text-teal-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+                <MessageCircle size={14} /> Ask HALO
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => void openEmailFromToolbar()}
+              disabled={stickyEmailDisabled}
+              title={
+                !userEmail?.trim()
+                  ? 'Sign in with Google to enable email'
+                  : 'Email note, dictation, or patient chart details to your inbox'
+              }
+              className="shrink-0 flex items-center justify-center gap-2 min-h-[44px] px-4 py-2.5 rounded-xl text-sm font-semibold bg-slate-700 text-white hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-all shadow-sm border border-slate-600/80 sm:mb-0.5"
+            >
+              <Mail className="w-4 h-4 shrink-0" aria-hidden />
+              Email
             </button>
           </div>
 
@@ -1072,6 +1222,13 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               onDeleteFile={setFileToDelete}
               onViewFile={setViewingFile}
               onCreateFolder={() => setShowCreateFolderModal(true)}
+              onEmailFile={(file) => {
+                if (!userEmail?.trim()) {
+                  onToast('Your Google email is not available. Sign out and sign in again.', 'error');
+                  return;
+                }
+                setDriveFileEmailTarget(file);
+              }}
               isFolderProtected={isPatientNotesSystemFolder}
             />
           ) : activeTab === 'notes' ? (
@@ -1136,9 +1293,47 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                     >
                       Cancel
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!userEmail?.trim()) {
+                          onToast('Your Google email is not available. Sign out and sign in again.', 'error');
+                          return;
+                        }
+                        if (!(pendingTranscript ?? '').trim()) {
+                          onToast('No dictation to send yet.', 'info');
+                          return;
+                        }
+                        setEmailComposeMode('transcript');
+                        setEmailNoteIndex(0);
+                        setShowEmailNoteModal(true);
+                      }}
+                      className="px-4 py-2 rounded-xl text-sm font-semibold bg-slate-600 text-white border border-slate-600 hover:bg-slate-700 transition shadow-sm flex items-center gap-2"
+                    >
+                      <Mail className="w-4 h-4 shrink-0" aria-hidden />
+                      Email dictation
+                    </button>
                   </div>
                 </div>
                 <div className="flex-1 p-4 overflow-auto bg-slate-50">
+                  <div className="mb-4 rounded-xl border border-teal-200 bg-teal-50/90 px-4 py-3 text-sm text-slate-800 shadow-sm">
+                    <p className="text-[10px] font-bold text-teal-800 uppercase tracking-wider mb-2">
+                      Patient on chart (sent with generate &amp; email)
+                    </p>
+                    <p><span className="font-semibold text-slate-700">Name:</span> {patient.name}</p>
+                    <p><span className="font-semibold text-slate-700">DOB:</span> {patient.dob}</p>
+                    <p><span className="font-semibold text-slate-700">Age:</span> {patientAgeDisplay}</p>
+                    <p><span className="font-semibold text-slate-700">Sex:</span> {patient.sex || '—'}</p>
+                    {patient.folderNumber?.trim() ? (
+                      <p><span className="font-semibold text-slate-700">Folder no.:</span> {patient.folderNumber.trim()}</p>
+                    ) : null}
+                    {patient.contactNumber?.trim() ? (
+                      <p><span className="font-semibold text-slate-700">Contact:</span> {patient.contactNumber.trim()}</p>
+                    ) : null}
+                    <p className="text-xs text-teal-900/80 mt-2 leading-snug">
+                      These details are merged into generated notes, DOCX, and emails so templates stay aligned with the chart.
+                    </p>
+                  </div>
                   <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Transcript preview</p>
                   <p className="text-sm text-slate-600 whitespace-pre-wrap">{pendingTranscript}</p>
                 </div>
@@ -1199,13 +1394,21 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               <div>
                 <label className="block text-sm font-semibold text-slate-600 mb-1.5">Sex</label>
                 <div className="flex bg-slate-100 p-1 rounded-xl">
-                  <button onClick={() => setEditSex('M')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${editSex === 'M' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>M</button>
-                  <button onClick={() => setEditSex('F')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${editSex === 'F' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>F</button>
+                  <button type="button" onClick={() => setEditSex('M')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${editSex === 'M' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>M</button>
+                  <button type="button" onClick={() => setEditSex('F')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${editSex === 'F' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>F</button>
                 </div>
               </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-600 mb-1.5">Folder / file number</label>
+                <input type="text" value={editFolderNumber} onChange={e => setEditFolderNumber(e.target.value)} placeholder="e.g. MRN, ward file no." className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-600 mb-1.5">Contact number</label>
+                <input type="tel" value={editContactNumber} onChange={e => setEditContactNumber(e.target.value)} placeholder="Phone or mobile" className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
+              </div>
               <div className="flex gap-3 pt-2">
-                <button onClick={() => setEditingPatient(false)} className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition">Cancel</button>
-                <button onClick={savePatientEdit} className="flex-1 bg-teal-600 hover:bg-teal-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-teal-600/20 transition">Save Changes</button>
+                <button type="button" onClick={() => setEditingPatient(false)} className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition">Cancel</button>
+                <button type="button" onClick={() => void savePatientEdit()} className="flex-1 bg-teal-600 hover:bg-teal-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-teal-600/20 transition">Save Changes</button>
               </div>
             </div>
           </div>
@@ -1344,12 +1547,61 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         />
       )}
 
+      {/* EMAIL WORKSPACE FILE (Active Workspace) */}
+      {driveFileEmailTarget && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4 safe-pad-b">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl p-6 w-full max-w-sm max-h-[90dvh] overflow-y-auto sm:m-4">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-slate-800">Email document</h3>
+              <button
+                type="button"
+                onClick={() => setDriveFileEmailTarget(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <p className="text-xs text-slate-600 mb-2">
+              Send <span className="font-semibold text-slate-800">{driveFileEmailTarget.name}</span> to{' '}
+              <span className="font-semibold text-slate-800">{userEmail}</span>.
+            </p>
+            <p className="text-xs text-slate-500 mb-4">
+              The message includes this patient&apos;s chart identifiers (name, DOB, age, sex, folder no., contact), a Google Drive link, extracted text when possible, and the file as an attachment when the server can download it.
+            </p>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setDriveFileEmailTarget(null)}
+                className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSendDriveFileEmail()}
+                disabled={driveFileEmailSending || !userEmail?.trim()}
+                className="flex-1 bg-slate-600 hover:bg-slate-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-slate-600/20 transition disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {driveFileEmailSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail size={16} />}
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* EMAIL NOTE MODAL */}
       {showEmailNoteModal && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4 safe-pad-b">
           <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl p-6 w-full max-w-sm max-h-[90dvh] overflow-y-auto sm:m-4">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-slate-800">Email note</h3>
+              <h3 className="text-lg font-bold text-slate-800">
+                {emailComposeMode === 'note'
+                  ? 'Email note'
+                  : emailComposeMode === 'transcript'
+                    ? 'Email dictation'
+                    : 'Email patient chart'}
+              </h3>
               <button
                 type="button"
                 onClick={() => setShowEmailNoteModal(false)}
@@ -1359,9 +1611,25 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               </button>
             </div>
             <p className="text-xs text-slate-500 mb-3">
-              Sends a plain-text copy of this note and a Word (.docx) attachment (same format as Save as DOCX) to{' '}
-              <span className="font-semibold text-slate-700">{userEmail}</span> (your signed-in Google account). The message is sent from{' '}
-              <span className="font-semibold text-slate-700">admin@halo.africa</span> via your Outlook SMTP settings.
+              {emailComposeMode === 'note' && (
+                <>
+                  Sends this note as plain text plus a Word (.docx) when available to{' '}
+                  <span className="font-semibold text-slate-700">{userEmail}</span>. Patient name, DOB, and sex are included in the message body for your records.
+                </>
+              )}
+              {emailComposeMode === 'transcript' && (
+                <>
+                  Sends your <span className="font-semibold text-slate-700">dictation</span> with the same patient identifiers used for note generation to{' '}
+                  <span className="font-semibold text-slate-700">{userEmail}</span>. You can send before or after generating a structured note.
+                </>
+              )}
+              {emailComposeMode === 'chart_only' && (
+                <>
+                  Sends <span className="font-semibold text-slate-700">patient identifiers</span> from this chart (name, DOB, sex) to{' '}
+                  <span className="font-semibold text-slate-700">{userEmail}</span>—useful when you have not dictated or written a note yet.
+                </>
+              )}{' '}
+              Outgoing mail uses your configured SMTP (e.g. Outlook).
             </p>
             <div className="flex gap-3 pt-2">
               <button
@@ -1374,11 +1642,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               <button
                 type="button"
                 onClick={() => void handleSendNoteEmail()}
-                disabled={
-                  emailNoteSending ||
-                  !userEmail?.trim() ||
-                  !buildNotePlainText(notes[emailNoteIndex] ?? { content: '', fields: undefined }).trim()
-                }
+                disabled={emailNoteSending || !userEmail?.trim()}
                 className="flex-1 bg-slate-600 hover:bg-slate-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-slate-600/20 transition disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {emailNoteSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail size={16} />}

@@ -3,7 +3,7 @@ import type { DriveFile, BreadcrumbItem } from '../../../shared/types';
 import { AppStatus, FOLDER_MIME_TYPE } from '../../../shared/types';
 import {
   FileText, ChevronLeft, ChevronRight, Home, FolderOpen, FolderPlus,
-  Pencil, Trash2, Eye, ExternalLink, CloudUpload,
+  Pencil, Trash2, Eye, ExternalLink, CloudUpload, Mail,
   FileSpreadsheet, FileImage, File,
 } from 'lucide-react';
 import { getFriendlyFileType } from '../utils/formatting';
@@ -19,6 +19,8 @@ interface FileBrowserProps {
   onDeleteFile: (file: DriveFile) => void;
   onViewFile: (file: DriveFile) => void;
   onCreateFolder: () => void;
+  /** Email this file (workspace); omitted = no button. */
+  onEmailFile?: (file: DriveFile) => void;
   /** Folders matching this (e.g. system "Patient Notes") cannot be renamed or deleted. */
   isFolderProtected?: (folder: DriveFile) => boolean;
 }
@@ -42,7 +44,7 @@ const FileSkeleton: React.FC = () => (
 export const FileBrowser: React.FC<FileBrowserProps> = ({
   files, status, breadcrumbs,
   onNavigateToFolder, onNavigateBack, onNavigateToBreadcrumb,
-  onStartEditFile, onDeleteFile, onViewFile, onCreateFolder, isFolderProtected,
+  onStartEditFile, onDeleteFile, onViewFile, onCreateFolder, onEmailFile, isFolderProtected,
 }) => {
   const isAtRoot = breadcrumbs.length <= 1;
   const folders = files.filter(isFolder);
@@ -185,17 +187,27 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                         <h4 className="font-semibold text-slate-800 group-hover:text-teal-700 transition-colors truncate">{file.name}</h4>
                         <p className="text-xs text-slate-500 mt-1 truncate">{file.createdTime} &bull; {getFriendlyFileType(file.mimeType)}</p>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => onStartEditFile(file)} className="p-2 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100" title="Rename">
+                      <div className="flex items-center gap-1 flex-wrap justify-end">
+                        {onEmailFile && (
+                          <button
+                            type="button"
+                            onClick={() => onEmailFile(file)}
+                            className="flex items-center gap-1 text-sm bg-slate-600 text-white px-3 py-1.5 rounded-md font-medium hover:bg-slate-700 transition-colors min-h-[40px]"
+                            title="Email this document to your signed-in address"
+                          >
+                            <Mail size={14} /> Email
+                          </button>
+                        )}
+                        <button type="button" onClick={() => onStartEditFile(file)} className="p-2 min-w-[40px] min-h-[40px] text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-colors sm:opacity-0 sm:group-hover:opacity-100" title="Rename">
                           <Pencil size={16} />
                         </button>
-                        <button onClick={() => onDeleteFile(file)} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100" title="Delete">
+                        <button type="button" onClick={() => onDeleteFile(file)} className="p-2 min-w-[40px] min-h-[40px] text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors sm:opacity-0 sm:group-hover:opacity-100" title="Delete">
                           <Trash2 size={16} />
                         </button>
-                        <button onClick={() => onViewFile(file)} className="hidden sm:flex items-center gap-1.5 text-sm bg-slate-50 text-slate-600 px-3 py-1.5 rounded-md font-medium hover:bg-teal-50 hover:text-teal-700 transition-colors" title="Preview">
+                        <button type="button" onClick={() => onViewFile(file)} className="hidden sm:flex items-center gap-1.5 text-sm bg-slate-50 text-slate-600 px-3 py-1.5 rounded-md font-medium hover:bg-teal-50 hover:text-teal-700 transition-colors" title="Preview">
                           <Eye size={14} /> View
                         </button>
-                        <a href={file.url} target="_blank" rel="noreferrer" className="p-2 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100" title="Open in new tab">
+                        <a href={file.url} target="_blank" rel="noreferrer" className="p-2 min-w-[40px] min-h-[40px] text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-colors sm:opacity-0 sm:group-hover:opacity-100" title="Open in new tab">
                           <ExternalLink size={16} />
                         </a>
                       </div>

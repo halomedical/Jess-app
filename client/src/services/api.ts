@@ -113,13 +113,27 @@ export async function fetchAllPatients(): Promise<Patient[]> {
   return all;
 }
 
-export const createPatient = (name: string, dob: string, sex: 'M' | 'F') =>
+export const createPatient = (
+  name: string,
+  dob: string,
+  sex: 'M' | 'F',
+  opts?: { folderNumber?: string; contactNumber?: string }
+) =>
   request<Patient>('/api/drive/patients', {
     method: 'POST',
-    body: JSON.stringify({ name, dob, sex }),
+    body: JSON.stringify({
+      name,
+      dob,
+      sex,
+      ...(opts?.folderNumber?.trim() ? { folderNumber: opts.folderNumber.trim() } : {}),
+      ...(opts?.contactNumber?.trim() ? { contactNumber: opts.contactNumber.trim() } : {}),
+    }),
   });
 
-export const updatePatient = (id: string, updates: { name?: string; dob?: string; sex?: string }) =>
+export const updatePatient = (
+  id: string,
+  updates: { name?: string; dob?: string; sex?: string; folderNumber?: string; contactNumber?: string }
+) =>
   request(`/api/drive/patients/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(updates),
@@ -308,6 +322,25 @@ export const sendClinicalNoteEmail = (params: {
   docxFileName?: string;
 }) =>
   request<{ ok: boolean; message: string }>('/api/email-note', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+
+/** Email a workspace Drive file: chart identifiers, link, extracted text, attachment when possible. */
+export const sendWorkspaceFileEmail = (params: {
+  fileId: string;
+  fileName: string;
+  mimeType: string;
+  fileUrl?: string;
+  patient: {
+    name: string;
+    dob: string;
+    sex: 'M' | 'F';
+    folderNumber?: string;
+    contactNumber?: string;
+  };
+}) =>
+  request<{ ok: boolean; message: string }>('/api/email-note/drive-file', {
     method: 'POST',
     body: JSON.stringify(params),
   });

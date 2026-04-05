@@ -26,6 +26,8 @@ export const App = () => {
   const [newPatientName, setNewPatientName] = useState("");
   const [newPatientDob, setNewPatientDob] = useState("");
   const [newPatientSex, setNewPatientSex] = useState<'M' | 'F'>('M');
+  const [newPatientFolderNumber, setNewPatientFolderNumber] = useState("");
+  const [newPatientContact, setNewPatientContact] = useState("");
 
   // Settings / profile state
   const [showSettings, setShowSettings] = useState(false);
@@ -150,13 +152,18 @@ export const App = () => {
 
     setLoading(true);
     try {
-      const newP = await createPatient(newPatientName, newPatientDob, newPatientSex);
+      const newP = await createPatient(newPatientName, newPatientDob, newPatientSex, {
+        folderNumber: newPatientFolderNumber.trim() || undefined,
+        contactNumber: newPatientContact.trim() || undefined,
+      });
       if (newP) {
         await refreshPatients();
         setShowCreateModal(false);
         setNewPatientName("");
         setNewPatientDob("");
         setNewPatientSex("M");
+        setNewPatientFolderNumber("");
+        setNewPatientContact("");
         showToast('Patient folder created successfully.', 'success');
       }
     } catch (error) {
@@ -325,6 +332,14 @@ export const App = () => {
                       <button type="button" onClick={() => setNewPatientSex('F')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${newPatientSex === 'F' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>F</button>
                     </div>
                   </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-600 mb-1.5">Folder / file number</label>
+                  <input type="text" placeholder="Optional — e.g. MRN, filing ref" value={newPatientFolderNumber} onChange={(e) => setNewPatientFolderNumber(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-600 mb-1.5">Contact number</label>
+                  <input type="tel" placeholder="Optional — phone or mobile" value={newPatientContact} onChange={(e) => setNewPatientContact(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
                 </div>
                 <div className="pt-2 flex gap-3">
                   <button type="button" onClick={() => setShowCreateModal(false)} className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition">Cancel</button>

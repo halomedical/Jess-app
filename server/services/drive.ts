@@ -483,5 +483,7 @@ export function parsePatientFolder(f: DriveFileRaw) {
     sex: pSex || 'M',
     lastVisit: f.appProperties?.lastNoteDate || f.createdTime?.split('T')[0] || '',
     alerts: [] as string[],
+    folderNumber: f.appProperties?.patientFolderNumber?.trim() || undefined,
+    contactNumber: f.appProperties?.patientContact?.trim() || undefined,
   };
 }

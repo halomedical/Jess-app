@@ -7,6 +7,10 @@ export interface Patient {
   sex: 'M' | 'F';
   lastVisit: string;
   alerts: string[];
+  /** User filing / folder reference (stored in Drive appProperties). */
+  folderNumber?: string;
+  /** Contact phone (stored in Drive appProperties). */
+  contactNumber?: string;
 }
 
 export interface DriveFile {

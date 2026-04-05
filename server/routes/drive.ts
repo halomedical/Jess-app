@@ -69,6 +69,7 @@ router.get('/patients', async (req: Request, res: Response) => {
       const storedDob = f.appProperties?.patientDob;
       const storedSex = f.appProperties?.patientSex;
       if (parsed.pName !== storedName || parsed.pDob !== storedDob || parsed.pSex !== storedSex) {
+        const prev = (f as { appProperties?: Record<string, string> }).appProperties || {};
         fetch(`${driveApi}/files/${f.id}`, {
           method: 'PATCH',
           headers: {
@@ -77,6 +78,7 @@ router.get('/patients', async (req: Request, res: Response) => {
           },
           body: JSON.stringify({
             appProperties: {
+              ...prev,
               patientName: parsed.pName,
               patientDob: parsed.pDob,
               patientSex: parsed.pSex,
@@ -136,6 +138,8 @@ router.post('/patients', async (req: Request, res: Response) => {
     const name = sanitizeString(req.body.name);
     const dob = sanitizeString(req.body.dob);
     const sex = sanitizeString(req.body.sex);
+    const folderNumber = sanitizeString(req.body.folderNumber, 80);
+    const contactNumber = sanitizeString(req.body.contactNumber, 80);
 
     if (!name || name.length < 2) {
       res.status(400).json({ error: 'Patient name must be at least 2 characters.' });
@@ -168,6 +172,8 @@ router.post('/patients', async (req: Request, res: Response) => {
           patientName: name,
           patientDob: dob,
           patientSex: sex,
+          ...(folderNumber ? { patientFolderNumber: folderNumber } : {}),
+          ...(contactNumber ? { patientContact: contactNumber } : {}),
         },
       }),
     });
@@ -188,6 +194,8 @@ router.post('/patients', async (req: Request, res: Response) => {
       sex,
       lastVisit: new Date().toISOString().split('T')[0],
       alerts: [],
+      ...(folderNumber ? { folderNumber } : {}),
+      ...(contactNumber ? { contactNumber } : {}),
     });
   } catch (err) {
     console.error('Create patient error:', err);
@@ -204,6 +212,10 @@ router.patch('/patients/:id', async (req: Request, res: Response) => {
     const name = req.body.name ? sanitizeString(req.body.name) : undefined;
     const dob = req.body.dob ? sanitizeString(req.body.dob) : undefined;
     const sex = req.body.sex ? sanitizeString(req.body.sex) : undefined;
+    const folderNumber =
+      req.body.folderNumber !== undefined ? sanitizeString(req.body.folderNumber, 80) : undefined;
+    const contactNumber =
+      req.body.contactNumber !== undefined ? sanitizeString(req.body.contactNumber, 80) : undefined;
 
     if (name !== undefined && name.length < 2) {
       res.status(400).json({ error: 'Patient name must be at least 2 characters.' });
@@ -238,6 +250,21 @@ router.patch('/patients/:id', async (req: Request, res: Response) => {
     const finalDob = dob || currentDob || 'Unknown';
     const finalSex = sex || currentSex || 'M';
 
+    const prevProps = { ...(current.appProperties || {}) };
+    const appProperties: Record<string, string> = {
+      ...prevProps,
+      type: prevProps.type || 'patient_folder',
+      patientName: finalName,
+      patientDob: finalDob,
+      patientSex: finalSex,
+    };
+    if (folderNumber !== undefined) {
+      appProperties.patientFolderNumber = folderNumber;
+    }
+    if (contactNumber !== undefined) {
+      appProperties.patientContact = contactNumber;
+    }
+
     await fetch(`${driveApi}/files/${id}`, {
       method: 'PATCH',
       headers: {
@@ -246,11 +273,7 @@ router.patch('/patients/:id', async (req: Request, res: Response) => {
       },
       body: JSON.stringify({
         name: `${finalName}__${finalDob}__${finalSex}`,
-        appProperties: {
-          patientName: finalName,
-          patientDob: finalDob,
-          patientSex: finalSex,
-        },
+        appProperties,
       }),
     });
 

@@ -74,7 +74,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
   if (notes.length === 0) {
     return (
-      <div className="h-[600px] flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden min-h-0 h-[min(600px,calc(100dvh-13rem))] max-h-[min(600px,88dvh)]">
         <div className="flex-1 flex items-center justify-center text-slate-400">
           <p className="text-sm">No notes yet. Use the Scribe to dictate, then notes will appear here.</p>
         </div>
@@ -83,7 +83,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   }
 
   return (
-    <div className="h-[600px] flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+    <div className="flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden min-h-0 h-[min(600px,calc(100dvh-13rem))] max-h-[min(600px,88dvh)]">
       <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Clinical Note Editor</span>
@@ -194,7 +194,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       )}
 
-      <div className="bg-slate-50 border-t border-slate-200 p-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="shrink-0 bg-slate-50 border-t border-slate-200 p-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
@@ -208,7 +208,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           <button
             type="button"
             onClick={() => onEmail(activeIndex)}
-            disabled={busy || !notePlain.trim()}
+            disabled={busy}
+            title={notePlain.trim() ? 'Email this note' : 'Email will include patient chart details even if this note is empty'}
             className="flex items-center gap-2 bg-slate-600 text-white px-4 py-2 rounded-lg hover:bg-slate-700 disabled:opacity-50 font-medium transition-all shadow-sm text-sm"
           >
             <Mail className="w-4 h-4" /> Email

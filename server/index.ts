@@ -80,8 +80,27 @@ app.get('/api/health', (_req: Request, res: Response) => {
 // Serve frontend in production
 if (config.isProduction) {
   const staticPath = path.join(__dirname, '../../client/dist');
-  app.use(express.static(staticPath));
+  app.use(
+    express.static(staticPath, {
+      etag: true,
+      setHeaders: (res, filePath) => {
+        const base = path.basename(filePath);
+        if (base === 'index.html' || base.endsWith('.html')) {
+          res.setHeader(
+            'Cache-Control',
+            'no-store, no-cache, must-revalidate, proxy-revalidate'
+          );
+        } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+      },
+    })
+  );
   app.get('/{*path}', (_req: Request, res: Response) => {
+    res.setHeader(
+      'Cache-Control',
+      'no-store, no-cache, must-revalidate, proxy-revalidate'
+    );
     res.sendFile('index.html', { root: staticPath });
   });
 }

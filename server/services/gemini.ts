@@ -177,7 +177,8 @@ export async function transcribeAudio(prompt: string, base64Data: string, mimeTy
         ],
         generationConfig: {
           temperature: 0.1,
-          maxOutputTokens: 16384,
+          // Dictation rarely needs huge completions; lower cap reduces time-to-first-token and total latency.
+          maxOutputTokens: 8192,
         },
       },
       geminiRequestOptions

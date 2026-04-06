@@ -312,7 +312,7 @@ export const saveNoteAsDocx = (params: {
     }),
   });
 
-/** Email the current note to the signed-in user's address; From is admin@halo.africa (server). Attaches Word when template_id is set (default). */
+/** Email the current note; attaches Word when template_id is set. Body stays short when .docx attaches (full text only if attachment fails). */
 export const sendClinicalNoteEmail = (params: {
   subject?: string;
   text: string;
@@ -326,7 +326,7 @@ export const sendClinicalNoteEmail = (params: {
     body: JSON.stringify(params),
   });
 
-/** Email a workspace Drive file: chart identifiers, link, extracted text, attachment when possible. */
+/** Email a workspace Drive file: attachment when possible; short body (no full extracted text when attached). */
 export const sendWorkspaceFileEmail = (params: {
   fileId: string;
   fileName: string;
@@ -340,7 +340,7 @@ export const sendWorkspaceFileEmail = (params: {
     contactNumber?: string;
   };
 }) =>
-  request<{ ok: boolean; message: string }>('/api/email-note/drive-file', {
+  request<{ ok: boolean; message: string }>('/api/email-workspace-file', {
     method: 'POST',
     body: JSON.stringify(params),
   });

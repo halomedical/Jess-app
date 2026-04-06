@@ -91,7 +91,7 @@ Clinical input (chart identifiers may appear first, then dictation or note conte
 
 /** Short prompt for /transcribe only — faster than SOAP-style instructions on Gemini. */
 export function fastTranscriptionPrompt(): string {
-  return 'Transcribe the audio verbatim into plain clinical English. Output only the spoken words with normal punctuation. No headings, no labels, no SOAP, no commentary.';
+  return 'Verbatim transcript: spoken words only, plain clinical English, normal punctuation. No headings, labels, or commentary.';
 }
 
 export function geminiTranscriptionPrompt(customTemplate?: string): string {

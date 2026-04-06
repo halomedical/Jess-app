@@ -11,34 +11,56 @@ interface FileViewerProps {
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
+function normalizeMime(mimeType: string): string {
+  return (mimeType || '').split(';')[0].trim().toLowerCase();
+}
+
 /**
  * Determine if a file type can be previewed in-app.
  * Returns the type of viewer to use.
  */
-function getViewerType(mimeType: string, fileName: string): 'pdf' | 'image' | 'text' | 'google-embed' | 'unsupported' {
+function getViewerType(
+  mimeType: string,
+  fileName: string
+): 'pdf' | 'image' | 'text' | 'docx' | 'unsupported' {
+  const mt = normalizeMime(mimeType);
+  const fn = (fileName || '').trim();
+  const fnLower = fn.toLowerCase();
+
   // Images
-  if (mimeType.startsWith('image/')) return 'image';
+  if (mt.startsWith('image/')) return 'image';
 
   // PDFs
-  if (mimeType === 'application/pdf' || fileName.endsWith('.pdf')) return 'pdf';
+  if (mt === 'application/pdf' || fnLower.endsWith('.pdf')) return 'pdf';
+
+  // Word OOXML (.docx) — HTML preview via mammoth (legacy .doc is not supported here)
+  const isDocxMime =
+    mt === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    mt.includes('wordprocessingml.document');
+  const isDocxName = fnLower.endsWith('.docx');
+  if (isDocxMime || isDocxName || (mt === 'application/octet-stream' && isDocxName)) {
+    return 'docx';
+  }
 
   // Text-based files
   if (
-    mimeType === 'text/plain' ||
-    mimeType === 'text/csv' ||
-    mimeType === 'text/html' ||
-    mimeType === 'application/json' ||
-    fileName.endsWith('.txt') ||
-    fileName.endsWith('.csv') ||
-    fileName.endsWith('.json')
-  ) return 'text';
+    mt === 'text/plain' ||
+    mt === 'text/csv' ||
+    mt === 'text/html' ||
+    mt === 'application/json' ||
+    fnLower.endsWith('.txt') ||
+    fnLower.endsWith('.csv') ||
+    fnLower.endsWith('.json')
+  )
+    return 'text';
 
   // Google Workspace files (Docs, Sheets, Slides) — export as PDF for viewer
   if (
-    mimeType === 'application/vnd.google-apps.document' ||
-    mimeType === 'application/vnd.google-apps.spreadsheet' ||
-    mimeType === 'application/vnd.google-apps.presentation'
-  ) return 'pdf';
+    mt === 'application/vnd.google-apps.document' ||
+    mt === 'application/vnd.google-apps.spreadsheet' ||
+    mt === 'application/vnd.google-apps.presentation'
+  )
+    return 'pdf';
 
   return 'unsupported';
 }
@@ -46,6 +68,7 @@ function getViewerType(mimeType: string, fileName: string): 'pdf' | 'image' | 't
 export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeType, fileUrl, onClose }) => {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [textContent, setTextContent] = useState<string | null>(null);
+  const [docxHtml, setDocxHtml] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const blobUrlRef = useRef<string | null>(null);
@@ -71,6 +94,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
       setError(null);
       setBlobUrl(null);
       setTextContent(null);
+      setDocxHtml(null);
 
       try {
         const proxyUrl = `${API_BASE}/api/drive/files/${fileId}/proxy`;
@@ -85,6 +109,11 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
         if (viewerType === 'text') {
           const text = await res.text();
           if (!cancelled) setTextContent(text);
+        } else if (viewerType === 'docx') {
+          const arrayBuffer = await res.arrayBuffer();
+          const { default: mammoth } = await import('mammoth');
+          const { value } = await mammoth.convertToHtml({ arrayBuffer });
+          if (!cancelled) setDocxHtml(value || '<p>(Empty document)</p>');
         } else {
           const blob = await res.blob();
           if (!cancelled) {
@@ -111,7 +140,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
         blobUrlRef.current = null;
       }
     };
-  }, [fileId, viewerType]);
+  }, [fileId, viewerType, fileName, mimeType]);
 
   // Close on Escape key
   useEffect(() => {
@@ -191,6 +220,20 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
           <pre className="whitespace-pre-wrap font-mono text-sm text-slate-700 leading-relaxed">
             {textContent}
           </pre>
+        </div>
+      );
+    }
+
+    if (viewerType === 'docx' && docxHtml !== null) {
+      return (
+        <div className="h-full overflow-auto p-6 bg-white">
+          <div
+            className="docx-preview max-w-[52rem] mx-auto text-slate-800 text-[0.9375rem] leading-relaxed [&_p]:my-2 [&_p:first-child]:mt-0 [&_h1]:text-xl [&_h1]:font-bold [&_h1]:my-3 [&_h2]:text-lg [&_h2]:font-bold [&_h2]:my-2 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-2 [&_li]:my-0.5 [&_table]:w-full [&_table]:text-sm [&_table]:my-3 [&_td]:border [&_td]:border-slate-200 [&_td]:p-1.5 [&_td]:align-top [&_th]:border [&_th]:border-slate-200 [&_th]:p-1.5 [&_th]:bg-slate-50 [&_th]:font-semibold [&_a]:text-teal-700 [&_a]:underline"
+            dangerouslySetInnerHTML={{ __html: docxHtml }}
+          />
+          <p className="max-w-[52rem] mx-auto mt-4 text-xs text-slate-400">
+            Preview may differ slightly from Word formatting. Use “New Tab” for the original file when needed.
+          </p>
         </div>
       );
     }

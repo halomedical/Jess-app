@@ -10,7 +10,7 @@
     "dev:server": "nodemon --exec ts-node server/index.ts",
     "dev:client": "cd client && npm run dev",
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
-    "build": "npm --prefix client install && npm --prefix client run build && tsc",
+    "build": "npm install --include=dev --no-fund --no-audit && npm --prefix client install --include=dev --no-fund --no-audit && npm --prefix client run build && tsc",
     "heroku-postbuild": "npm run build",
     "build:server": "tsc",
     "build:client": "npm --prefix client install && npm --prefix client run build",

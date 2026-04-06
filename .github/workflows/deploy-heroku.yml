@@ -4,7 +4,10 @@
 # 1. Heroku: Account Settings → find "API Key" (or create from CLI: `heroku auth:token`)
 # 2. GitHub: this repo → Settings → Secrets and variables → Actions → New repository secret
 #    Name: HEROKU_API_KEY   Value: (paste API key)
-# 3. Push this workflow to GitHub. After that: every `git push origin main` deploys Heroku.
+# 3. Push this workflow to GitHub. After that: every `git push origin main` runs this job and
+#    pushes THAT commit to Heroku’s git remote (Heroku then runs `npm install` + `heroku-postbuild`).
+#    This is separate from `git push heroku main` on your laptop — that only works if you ran
+#    `heroku git:remote -a jess-app1` and are logged into the Heroku CLI.
 #
 # If your Heroku app name is not jess-app1, change HEROKU_APP below or add a repo variable.
 
@@ -29,4 +32,11 @@ jobs:
       - name: Deploy to Heroku
         env:
           HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
-        run: git push "https://heroku:${HEROKU_API_KEY}@git.heroku.com/${HEROKU_APP}.git" HEAD:main
+        run: |
+          set -euo pipefail
+          if [ -z "${HEROKU_API_KEY}" ]; then
+            echo "::error::HEROKU_API_KEY is empty. Add it: GitHub repo → Settings → Secrets and variables → Actions → New repository secret."
+            exit 1
+          fi
+          echo "Pushing $(git rev-parse --short HEAD) to Heroku app ${HEROKU_APP} ..."
+          git push "https://heroku:${HEROKU_API_KEY}@git.heroku.com/${HEROKU_APP}.git" HEAD:main

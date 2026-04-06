@@ -191,11 +191,15 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                         {onEmailFile && (
                           <button
                             type="button"
-                            onClick={() => onEmailFile(file)}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              onEmailFile(file);
+                            }}
                             className="flex items-center gap-1 text-sm bg-slate-600 text-white px-3 py-1.5 rounded-md font-medium hover:bg-slate-700 transition-colors min-h-[40px]"
-                            title="Email this document to your signed-in address"
+                            title="Email this file from Drive (not the clinical note in the editor)"
                           >
-                            <Mail size={14} /> Email
+                            <Mail size={14} /> Email file
                           </button>
                         )}
                         <button type="button" onClick={() => onStartEditFile(file)} className="p-2 min-w-[40px] min-h-[40px] text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-colors sm:opacity-0 sm:group-hover:opacity-100" title="Rename">

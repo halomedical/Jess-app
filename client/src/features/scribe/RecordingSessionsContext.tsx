@@ -243,24 +243,24 @@ export function RecordingSessionsProvider({ children }: { children: React.ReactN
 
       setProcessingPatientId(patientId);
       try {
-        /** Transcribe each segment in parallel (park/resume can produce several clips). */
-        const tasks = segs
-          .filter((seg) => seg.blob?.size)
-          .map(async (seg) => {
-            const base64 = await blobToBase64Raw(seg.blob);
-            if (!base64) return '';
-            const t = (await transcribeAudio(base64, seg.mimeType || 'audio/webm')).trim();
-            return t;
-          });
+        /** Each park/resume produces a full WebM/Ogg blob; transcribe clips in parallel (cannot safely byte-merge containers). */
+        const valid = segs.filter((seg) => seg.blob?.size);
+        if (!valid.length) {
+          throw new Error('No speech detected in recordings.');
+        }
+        const tasks = valid.map(async (seg) => {
+          const base64 = await blobToBase64Raw(seg.blob);
+          if (!base64) return '';
+          const t = (await transcribeAudio(base64, seg.mimeType || 'audio/webm')).trim();
+          return t;
+        });
         const parts = (await Promise.all(tasks)).filter(Boolean);
-
-        delete segmentsRef.current[patientId];
-
         const transcript = parts.join('\n\n');
         if (!transcript) {
           throw new Error('No speech detected in recordings.');
         }
 
+        delete segmentsRef.current[patientId];
         mergeTranscriptIntoInAppMirrorDraft(patientId, transcript);
 
         const listeners = transcriptionListenersRef.current.get(patientId);

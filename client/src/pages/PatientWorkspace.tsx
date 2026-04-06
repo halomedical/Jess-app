@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { Patient, DriveFile, LabAlert, BreadcrumbItem, ChatMessage, HaloNote } from '../../../shared/types';
 import { HALO_TEMPLATE_OPTIONS, DEFAULT_HALO_TEMPLATE_ID } from '../../../shared/haloTemplates';
+import { detectTemplateIntentFromDictationHead, stripLeadingDictationTemplateCue } from '../../../shared/dictationTemplateIntent';
 import { buildNotePlainText } from '../../../shared/notePlainText';
 import { buildClinicalNoteInputFromDictation, buildNoteTextWithPatientChart } from '../../../shared/patientChartContext';
 import { formatAgeFromIsoDob } from '../../../shared/patientDemographics';
@@ -181,7 +182,12 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [activeNoteIndex, setActiveNoteIndex] = useState(0);
   const [templateId, setTemplateId] = useState(propTemplateId || DEFAULT_HALO_TEMPLATE_ID);
   const [pendingTranscript, setPendingTranscript] = useState<string | null>(null);
+  /** Mirrors pendingTranscript for merge logic before React commits (scribe backlog + chained dictation). */
+  const pendingTranscriptRef = useRef<string | null>(null);
   const [selectedTemplatesForGenerate, setSelectedTemplatesForGenerate] = useState<string[]>([DEFAULT_HALO_TEMPLATE_ID]);
+  /** After a finished recording, prompt for note type when dictation did not name one (multi-template only). */
+  const [postRecordTemplateModalOpen, setPostRecordTemplateModalOpen] = useState(false);
+  const [postRecordTemplateSelection, setPostRecordTemplateSelection] = useState<string[]>([]);
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(() => readStoredWorkspaceTab(patient.id));
   const [savingNoteIndex, setSavingNoteIndex] = useState<number | null>(null);
@@ -222,6 +228,10 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
 
   const patientRef = useRef(patient);
   patientRef.current = patient;
+
+  useEffect(() => {
+    pendingTranscriptRef.current = pendingTranscript;
+  }, [pendingTranscript]);
 
   const patientChartPayload = useMemo(
     () => ({
@@ -655,6 +665,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       onToast('Your Google email is not available. Sign out and sign in again.', 'error');
       return;
     }
+    setDriveFileEmailTarget(null);
     setEmailComposeMode('note');
     setEmailNoteIndex(noteIndex);
     setShowEmailNoteModal(true);
@@ -726,16 +737,20 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       setEmailComposeMode('chart_only');
       setEmailNoteIndex(0);
     }
+    setDriveFileEmailTarget(null);
     setShowEmailNoteModal(true);
   }, [userEmail, notes, activeNoteIndex, pendingTranscript, setWorkspaceTab, onToast]);
 
   useEffect(() => {
     const pid = patient.id;
+    setPostRecordTemplateModalOpen(false);
     const memoryDraft = patientEditorDraftsRef.current[pid];
     const stored = pickStoredDraft(userEmail, pid);
     const draft = stored ? stored.draft : memoryDraft;
     activeDraftPatientIdRef.current = pid;
-    setPendingTranscript(draft?.pendingTranscript ?? null);
+    const initialPending = draft?.pendingTranscript ?? null;
+    setPendingTranscript(initialPending);
+    pendingTranscriptRef.current = initialPending;
     setNotes(draft?.notes ?? []);
     setActiveNoteIndex(draft ? Math.min(draft.activeNoteIndex, Math.max((draft.notes?.length ?? 1) - 1, 0)) : 0);
     setSelectedTemplatesForGenerate(
@@ -749,14 +764,32 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         return;
       }
       if (patientRef.current.id !== pid) return;
-      setPendingTranscript(prev => {
-        const trimmedPrev = prev?.trim();
-        const trimmedText = text.trim();
-        if (!trimmedPrev) return trimmedText;
-        if (trimmedPrev === trimmedText) return prev;
-        return `${trimmedPrev}\n\n${trimmedText}`;
-      });
-      setSelectedTemplatesForGenerate([DEFAULT_HALO_TEMPLATE_ID]);
+
+      const prev = pendingTranscriptRef.current?.trim() ?? '';
+      const trimmedText = text.trim();
+      if (prev === trimmedText) {
+        setWorkspaceTab('notes');
+        return;
+      }
+      const merged = !prev ? trimmedText : `${prev}\n\n${trimmedText}`;
+
+      const detected = !prev
+        ? detectTemplateIntentFromDictationHead(merged)
+        : detectTemplateIntentFromDictationHead(trimmedText);
+
+      pendingTranscriptRef.current = merged;
+      setPendingTranscript(merged);
+
+      if (detected) {
+        const label = HALO_TEMPLATE_OPTIONS.find((t) => t.id === detected)?.name ?? detected;
+        setSelectedTemplatesForGenerate([detected]);
+        setPostRecordTemplateModalOpen(false);
+        onToast(`Using ${label} from your dictation.`, 'info');
+      } else if (!prev && HALO_TEMPLATE_OPTIONS.length > 1) {
+        setPostRecordTemplateSelection([]);
+        setPostRecordTemplateModalOpen(true);
+      }
+
       setWorkspaceTab('notes');
     };
 
@@ -791,7 +824,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           setDriveSyncReady(true);
           return;
         }
-        setPendingTranscript(parsed.draft.pendingTranscript ?? null);
+        const p = parsed.draft.pendingTranscript ?? null;
+        setPendingTranscript(p);
+        pendingTranscriptRef.current = p;
         setNotes(parsed.draft.notes ?? []);
         setActiveNoteIndex(
           Math.min(
@@ -857,15 +892,27 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     setSelectedTemplatesForGenerate(HALO_TEMPLATE_OPTIONS.map(t => t.id));
   }, []);
 
-  const handleGenerateFromTemplates = useCallback(async () => {
-    if (!pendingTranscript?.trim() || selectedTemplatesForGenerate.length === 0) {
+  const togglePostRecordModalTemplate = useCallback((id: string) => {
+    setPostRecordTemplateSelection((sel) =>
+      sel.includes(id) ? sel.filter((t) => t !== id) : [...sel, id]
+    );
+  }, []);
+
+  const handleGenerateFromTemplates = useCallback(async (templateIdsOverride?: string[]) => {
+    const rawDictation = pendingTranscript?.trim() ?? '';
+    const templateIds = templateIdsOverride ?? selectedTemplatesForGenerate;
+    if (!rawDictation) {
+      onToast('No dictation to generate from.', 'info');
+      return;
+    }
+    if (templateIds.length === 0) {
       onToast('Select at least one template.', 'info');
       return;
     }
     setStatus(AppStatus.LOADING);
-    const templateIds = selectedTemplatesForGenerate;
+    const dictationForModel = stripLeadingDictationTemplateCue(rawDictation);
     const templateNames = Object.fromEntries(HALO_TEMPLATE_OPTIONS.map(t => [t.id, t.name]));
-    const inputText = buildClinicalNoteInputFromDictation(patient, pendingTranscript);
+    const inputText = buildClinicalNoteInputFromDictation(patient, dictationForModel);
     try {
       const results = await Promise.all(
         templateIds.map(id => generateNotePreview({ template_id: id, text: inputText }))
@@ -876,7 +923,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         const first = res.notes?.[0];
         const content = first?.content?.trim()
           ? first.content
-          : pendingTranscript;
+          : dictationForModel;
         const createdAt = new Date().toISOString();
         return {
           noteId: first?.noteId ?? `note-${tid}-${Date.now()}`,
@@ -895,6 +942,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         return [...prev, ...combined];
       });
       setPendingTranscript(null);
+      pendingTranscriptRef.current = null;
       onToast(`Generated ${combined.length} note(s). You can edit and save as DOCX.`, 'success');
     } catch (err) {
       onToast(getErrorMessage(err), 'error');
@@ -1227,6 +1275,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                   onToast('Your Google email is not available. Sign out and sign in again.', 'error');
                   return;
                 }
+                setShowEmailNoteModal(false);
                 setDriveFileEmailTarget(file);
               }}
               isFolderProtected={isPatientNotesSystemFolder}
@@ -1276,7 +1325,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                     ) : null}
                     <button
                       type="button"
-                      onClick={handleGenerateFromTemplates}
+                      onClick={() => void handleGenerateFromTemplates()}
                       disabled={selectedTemplatesForGenerate.length === 0 || status === AppStatus.LOADING}
                       className="px-4 py-2 rounded-xl text-sm font-bold bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm border border-teal-600"
                     >
@@ -1288,7 +1337,11 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                     </button>
                     <button
                       type="button"
-                      onClick={() => setPendingTranscript(null)}
+                      onClick={() => {
+                        setPendingTranscript(null);
+                        pendingTranscriptRef.current = null;
+                        setPostRecordTemplateModalOpen(false);
+                      }}
                       className="px-4 py-2 rounded-xl text-sm font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition shadow-sm"
                     >
                       Cancel
@@ -1304,6 +1357,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                           onToast('No dictation to send yet.', 'info');
                           return;
                         }
+                        setDriveFileEmailTarget(null);
                         setEmailComposeMode('transcript');
                         setEmailNoteIndex(0);
                         setShowEmailNoteModal(true);
@@ -1373,6 +1427,75 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           )}
         </div>
       </div>
+
+      {/* After recording: pick note type when dictation did not name one */}
+      {postRecordTemplateModalOpen && HALO_TEMPLATE_OPTIONS.length > 1 ? (
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4 safe-pad-b">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl p-6 w-full max-w-md sm:m-4 border border-slate-200">
+            <h3 className="text-base font-bold text-slate-900 mb-1">Which note type?</h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Your dictation did not say echo report, rooms consult, or report. Choose one or more — you can also say that at the start next time to skip this step.
+            </p>
+            <div className="flex flex-wrap gap-2 mb-5">
+              {HALO_TEMPLATE_OPTIONS.map((t) => {
+                const selected = postRecordTemplateSelection.includes(t.id);
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => togglePostRecordModalTemplate(t.id)}
+                    className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all border shadow-sm whitespace-nowrap ${
+                      selected
+                        ? 'bg-teal-50 border-teal-300 text-teal-800 ring-2 ring-teal-200'
+                        : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    {t.name}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+              <button
+                type="button"
+                className="px-4 py-2.5 rounded-xl text-sm font-medium border border-slate-200 text-slate-600 hover:bg-slate-50"
+                onClick={() => {
+                  setPostRecordTemplateModalOpen(false);
+                  setSelectedTemplatesForGenerate([DEFAULT_HALO_TEMPLATE_ID]);
+                }}
+              >
+                Use default ({HALO_TEMPLATE_OPTIONS.find((t) => t.id === DEFAULT_HALO_TEMPLATE_ID)?.name ?? 'Rooms Consult'})
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2.5 rounded-xl text-sm font-semibold bg-white border border-slate-200 text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                disabled={postRecordTemplateSelection.length === 0 || status === AppStatus.LOADING}
+                onClick={() => {
+                  if (postRecordTemplateSelection.length === 0) return;
+                  setSelectedTemplatesForGenerate(postRecordTemplateSelection);
+                  setPostRecordTemplateModalOpen(false);
+                }}
+              >
+                Continue to transcript
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2.5 rounded-xl text-sm font-bold bg-teal-600 text-white border border-teal-600 hover:bg-teal-700 disabled:opacity-50"
+                disabled={postRecordTemplateSelection.length === 0 || status === AppStatus.LOADING}
+                onClick={() => {
+                  if (postRecordTemplateSelection.length === 0) return;
+                  const ids = [...postRecordTemplateSelection];
+                  setSelectedTemplatesForGenerate(ids);
+                  setPostRecordTemplateModalOpen(false);
+                  void handleGenerateFromTemplates(ids);
+                }}
+              >
+                Generate now
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* EDIT PATIENT MODAL */}
       {editingPatient && (
@@ -1566,7 +1689,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               <span className="font-semibold text-slate-800">{userEmail}</span>.
             </p>
             <p className="text-xs text-slate-500 mb-4">
-              The message includes this patient&apos;s chart identifiers (name, DOB, age, sex, folder no., contact), a Google Drive link, extracted text when possible, and the file as an attachment when the server can download it.
+              Sends this file as an attachment when possible; the message body stays short (link + filing details, not the full document text). Separate from <strong>Editor &amp; Scribe</strong> clinical note email.
             </p>
             <div className="flex gap-3 pt-2">
               <button
@@ -1613,14 +1736,14 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             <p className="text-xs text-slate-500 mb-3">
               {emailComposeMode === 'note' && (
                 <>
-                  Sends this note as plain text plus a Word (.docx) when available to{' '}
-                  <span className="font-semibold text-slate-700">{userEmail}</span>. Patient name, DOB, and sex are included in the message body for your records.
+                  Sends a Word (.docx) attachment when generation succeeds; the email body is only a short header (no duplicate of the full note text). Sent to{' '}
+                  <span className="font-semibold text-slate-700">{userEmail}</span>.
                 </>
               )}
               {emailComposeMode === 'transcript' && (
                 <>
-                  Sends your <span className="font-semibold text-slate-700">dictation</span> with the same patient identifiers used for note generation to{' '}
-                  <span className="font-semibold text-slate-700">{userEmail}</span>. You can send before or after generating a structured note.
+                  Sends a Word attachment when your template can build one; otherwise the full dictation (with patient identifiers) is in the message. Sent to{' '}
+                  <span className="font-semibold text-slate-700">{userEmail}</span>.
                 </>
               )}
               {emailComposeMode === 'chart_only' && (

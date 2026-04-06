@@ -10,6 +10,7 @@ import aiRoutes from './routes/ai';
 import haloRoutes from './routes/halo';
 import requestTemplateRoutes from './routes/requestTemplate';
 import emailNoteRoutes from './routes/emailNote';
+import emailWorkspaceFileRoutes from './routes/emailWorkspaceFile';
 import { startScheduler } from './jobs/scheduler';
 
 const app = express();
@@ -71,6 +72,7 @@ app.use('/api/ai', aiLimiter, aiRoutes);
 app.use('/api/halo', aiLimiter, haloRoutes);
 app.use('/api/request-template', requestTemplateRoutes);
 app.use('/api/email-note', emailNoteRoutes);
+app.use('/api/email-workspace-file', emailWorkspaceFileRoutes);
 
 // Health check
 app.get('/api/health', (_req: Request, res: Response) => {
@@ -113,5 +115,10 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 
 app.listen(config.port, () => {
   console.log(`Halo server running on port ${config.port} (${config.isProduction ? 'production' : 'development'})`);
+  if (config.isProduction) {
+    const ver = process.env.SOURCE_VERSION || process.env.HEROKU_SLUG_COMMIT || '';
+    if (ver) console.log(`[deploy] Git commit on Heroku: ${ver.slice(0, 40)}`);
+    else console.log('[deploy] SOURCE_VERSION not set (not a Heroku git deploy?)');
+  }
   startScheduler();
 });

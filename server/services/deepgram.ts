@@ -18,7 +18,7 @@ export function isDeepgramAvailable(): boolean {
 }
 
 /**
- * Transcribe audio using the Deepgram Nova 3 Medical model.
+ * Transcribe audio using the configured Deepgram model (default nova-2-medical).
  * Returns the raw transcript text, or empty string if no speech detected.
  */
 export async function transcribeWithDeepgram(audioBuffer: Buffer, mimeType: string): Promise<string> {
@@ -26,6 +26,7 @@ export async function transcribeWithDeepgram(audioBuffer: Buffer, mimeType: stri
     model: config.deepgramModel,
     smart_format: 'true',
     punctuate: 'true',
+    filler_words: 'false',
   });
   const dgResponse = await fetch(`https://api.deepgram.com/v1/listen?${qs.toString()}`, {
     method: 'POST',

@@ -35,7 +35,7 @@ export const Toast: React.FC<Props> = ({ message, type, onClose, duration = 4000
   }, [onClose, duration]);
 
   return (
-    <div className="fixed z-[100] left-4 right-4 top-auto bottom-[max(1.5rem,env(safe-area-inset-bottom))] md:top-6 md:right-6 md:left-auto md:bottom-auto animate-in slide-in-from-bottom-2 md:slide-in-from-top-4 fade-in duration-300">
+    <div className="fixed z-[100] left-4 right-4 max-md:top-auto max-md:bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] md:top-6 md:right-6 md:left-auto md:bottom-auto animate-in slide-in-from-bottom-2 md:slide-in-from-top-4 fade-in duration-300">
       <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border shadow-lg max-w-full md:max-w-sm ${STYLES[type]}`}>
         <Icon className={`w-5 h-5 shrink-0 ${ICON_STYLES[type]}`} />
         <p className="text-sm font-medium flex-1">{message}</p>

@@ -108,13 +108,13 @@ export const MultiSessionScribe: React.FC<Props> = ({
   };
 
   const handleFinishCurrent = async () => {
-      if (!currentPatientId) return;
-      try {
-        await finishAndTranscribe(currentPatientId);
-        onTranscriptionQueued();
-      } catch {
-        onError('Transcription failed. Try again or check your API keys.');
-      }
+    if (!currentPatientId) return;
+    try {
+      await finishAndTranscribe(currentPatientId);
+      onTranscriptionQueued();
+    } catch {
+      onError('Transcription failed. Try again or check your API keys.');
+    }
   };
 
   const currentPatientProcessing =
@@ -122,10 +122,144 @@ export const MultiSessionScribe: React.FC<Props> = ({
   const fabDisabled =
     currentPatientProcessing || (!currentPatientId && !isThisPatientRecording);
 
+  const statusPill =
+    isThisPatientRecording && isLiveCapturing ? (
+      <div className="bg-white border border-red-200 shadow-md rounded-full px-3 py-1.5 flex items-center gap-2 w-fit">
+        <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse shrink-0" />
+        <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Live</span>
+      </div>
+    ) : isThisPatientRecording && isMicHeldPaused ? (
+      <div className="bg-white border border-amber-200 shadow-md rounded-full px-3 py-1.5 flex items-center gap-2 w-fit">
+        <Pause className="w-3 h-3 text-amber-600 shrink-0" />
+        <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wider">Mic held</span>
+      </div>
+    ) : null;
+
   return (
     <>
-      {/* Compact indicators above FAB */}
-      <div className="fixed z-50 flex flex-col items-end gap-2 bottom-[max(5.5rem,calc(1.5rem+env(safe-area-inset-bottom)))] right-[max(1rem,env(safe-area-inset-right))] sm:bottom-[5.25rem] sm:right-6 max-w-[min(100vw-1rem,18rem)]">
+      {/* Mobile: fixed bottom dock — easy thumb reach, all controls visible */}
+      <div className="md:hidden fixed z-40 inset-x-0 bottom-0 pointer-events-none">
+        <div className="pointer-events-auto border-t border-slate-200/80 bg-white/95 backdrop-blur-md px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_24px_-4px_rgba(15,23,42,0.12)] safe-pad-x flex flex-col gap-2 max-w-[100vw]">
+          {anyTranscribing && (
+            <div className="rounded-xl border border-teal-200 bg-teal-50/90 px-3 py-2">
+              <div className="flex items-center gap-2">
+                <Wand2 className="w-4 h-4 text-teal-600 animate-spin shrink-0" />
+                <span className="text-xs font-bold text-teal-900">
+                  Transcribing{processingPatientIds.size > 1 ? ` (${processingPatientIds.size})` : ''}…
+                </span>
+              </div>
+              {longWait && (
+                <p className="text-[10px] text-slate-600 mt-1">May take 15–60 s.</p>
+              )}
+            </div>
+          )}
+
+          {statusPill}
+
+          {isThisPatientRecording && (isLiveCapturing || isMicHeldPaused) && (
+            <div className="flex flex-wrap gap-2">
+              {isLiveCapturing && (
+                <button
+                  type="button"
+                  onClick={holdRecording}
+                  className="touch-manipulation flex-1 min-h-[48px] min-w-[44px] bg-amber-500 active:bg-amber-600 text-white text-xs font-bold uppercase tracking-wide px-3 rounded-xl shadow-sm flex items-center justify-center gap-1.5"
+                >
+                  <Pause className="w-4 h-4 shrink-0" /> Hold mic
+                </button>
+              )}
+              {isMicHeldPaused && (
+                <button
+                  type="button"
+                  onClick={resumeHeldRecording}
+                  className="touch-manipulation flex-1 min-h-[48px] min-w-[44px] bg-emerald-600 active:bg-emerald-700 text-white text-xs font-bold uppercase tracking-wide px-3 rounded-xl shadow-sm flex items-center justify-center gap-1.5"
+                >
+                  <Play className="w-4 h-4 shrink-0" /> Mic on
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handlePark}
+                className="touch-manipulation flex-1 min-h-[48px] min-w-[44px] bg-slate-800 active:bg-slate-900 text-white text-xs font-bold uppercase tracking-wide px-3 rounded-xl shadow-sm flex items-center justify-center gap-1.5"
+                title="Save this segment and switch to another patient"
+              >
+                <ParkingSquare className="w-4 h-4 shrink-0" /> Park &amp; switch
+              </button>
+            </div>
+          )}
+
+          {forCurrentPatient &&
+            forCurrentPatient.segmentCount > 0 &&
+            !isThisPatientRecording &&
+            forCurrentPatient.status !== 'processing' && (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleMainFab}
+                  className="touch-manipulation flex-1 min-h-[48px] bg-teal-100 border border-teal-300 text-teal-900 text-xs font-bold px-3 rounded-xl flex items-center justify-center gap-1.5"
+                >
+                  <Mic className="w-4 h-4 shrink-0" /> Resume dictation
+                </button>
+                <button
+                  type="button"
+                  onClick={handleFinishCurrent}
+                  disabled={currentPatientProcessing}
+                  className="touch-manipulation flex-1 min-h-[48px] bg-teal-600 active:bg-teal-700 disabled:opacity-50 text-white text-xs font-bold px-3 rounded-xl flex items-center justify-center gap-1.5"
+                >
+                  <Check className="w-4 h-4 shrink-0" /> Finish &amp; transcribe
+                </button>
+              </div>
+            )}
+
+          <div className="flex items-center gap-2 pt-0.5">
+            <button
+              type="button"
+              onClick={() => (panelOpen ? closePanel() : openPanel())}
+              className="touch-manipulation flex-1 min-h-[52px] bg-slate-100 border border-slate-200 text-slate-800 text-sm font-bold px-3 rounded-xl shadow-sm flex items-center justify-center gap-2 active:bg-slate-200"
+            >
+              <ListMusic className="w-5 h-5 text-teal-600 shrink-0" />
+              <span>All sessions</span>
+              {activeCount > 0 && (
+                <span className="bg-teal-600 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[1.5rem] text-center">
+                  {activeCount}
+                </span>
+              )}
+              <ChevronDown className={`w-4 h-4 shrink-0 transition-transform ${panelOpen ? 'rotate-180' : ''}`} />
+            </button>
+            <button
+              type="button"
+              onClick={
+                isThisPatientRecording && (isLiveCapturing || isMicHeldPaused)
+                  ? handleFinishCurrent
+                  : handleMainFab
+              }
+              disabled={fabDisabled}
+              title={
+                isThisPatientRecording && (isLiveCapturing || isMicHeldPaused)
+                  ? 'Finish & send all segments to transcribe'
+                  : 'Start or resume dictation for this patient'
+              }
+              className={`touch-manipulation shrink-0 min-w-[56px] min-h-[56px] w-14 h-14 rounded-full shadow-lg flex items-center justify-center active:scale-95 transition-transform ${
+                isThisPatientRecording && (isLiveCapturing || isMicHeldPaused)
+                  ? 'bg-emerald-600 active:bg-emerald-700 text-white'
+                  : fabDisabled && !isThisPatientRecording
+                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                    : 'bg-teal-600 active:bg-teal-700 text-white'
+              }`}
+            >
+              {currentPatientProcessing ? (
+                <Wand2 className="w-6 h-6 animate-spin" />
+              ) : isThisPatientRecording && (isLiveCapturing || isMicHeldPaused) ? (
+                <Check className="w-7 h-7" />
+              ) : (
+                <Mic className="w-6 h-6" />
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Desktop: compact indicators above FAB (right column) */}
+      <div className="hidden md:flex fixed z-50 flex-col items-end gap-2 bottom-[5.25rem] right-6 max-w-[min(100vw-1rem,18rem)]">
         {anyTranscribing && (
           <div className="bg-white border border-teal-200 shadow-lg rounded-2xl px-3 py-2 text-right">
             <div className="flex items-center gap-2 justify-end">
@@ -210,8 +344,8 @@ export const MultiSessionScribe: React.FC<Props> = ({
         </button>
       </div>
 
-      {/* Main FAB */}
-      <div className="fixed z-50 flex flex-col items-end gap-2 bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] sm:bottom-6 sm:right-6">
+      {/* Desktop main FAB */}
+      <div className="hidden md:flex fixed z-50 flex-col items-end gap-2 bottom-6 right-6">
         {isThisPatientRecording && isLiveCapturing && (
           <div className="bg-white border border-red-200 shadow-lg rounded-full px-3 py-1.5 flex items-center gap-2 animate-in fade-in">
             <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
@@ -238,7 +372,7 @@ export const MultiSessionScribe: React.FC<Props> = ({
               ? 'Finish & send all segments to transcribe'
               : 'Start or resume dictation for this patient'
           }
-          className={`flex items-center justify-center rounded-full shadow-lg transition-all duration-200 touch-manipulation min-w-[48px] min-h-[48px] w-14 h-14 sm:w-12 sm:h-12 ${
+          className={`flex items-center justify-center rounded-full shadow-lg transition-all duration-200 touch-manipulation min-w-[48px] min-h-[48px] w-12 h-12 ${
             isThisPatientRecording && (isLiveCapturing || isMicHeldPaused)
               ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
               : fabDisabled && !isThisPatientRecording
@@ -256,34 +390,35 @@ export const MultiSessionScribe: React.FC<Props> = ({
         </button>
       </div>
 
-      {/* Sessions drawer */}
+      {/* Sessions drawer — above mobile dock */}
       {panelOpen && (
         <>
           <div
-            className="fixed inset-0 z-[55] bg-slate-900/40"
+            className="fixed inset-0 z-[60] md:z-[55] bg-slate-900/40"
             aria-hidden
             onClick={closePanel}
           />
-          <div className="fixed z-[56] left-2 right-2 sm:left-auto sm:right-4 sm:w-96 max-h-[min(70dvh,32rem)] bottom-[max(5.5rem,env(safe-area-inset-bottom))] sm:bottom-[5.5rem] rounded-2xl bg-white border border-slate-200 shadow-2xl flex flex-col overflow-hidden safe-pad-b animate-in slide-in-from-bottom-4 fade-in duration-200">
+          <div className="fixed z-[70] md:z-[56] left-2 right-2 sm:left-auto sm:right-4 sm:w-96 max-h-[min(72dvh,calc(100dvh-14rem))] md:max-h-[min(70dvh,32rem)] bottom-[max(14rem,calc(env(safe-area-inset-bottom)+13.5rem))] md:bottom-[5.5rem] rounded-2xl bg-white border border-slate-200 shadow-2xl flex flex-col overflow-hidden safe-pad-b animate-in slide-in-from-bottom-4 fade-in duration-200">
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50 shrink-0">
               <div>
                 <h3 className="text-sm font-bold text-slate-800">Recording sessions</h3>
-                <p className="text-[10px] text-slate-500 mt-0.5">
-                  Park frees the mic for another patient. Finish merges all segments.
+                <p className="text-[10px] text-slate-500 mt-0.5 md:mt-0.5">
+                  <span className="md:hidden">Park saves the clip so you can open another patient. Use Transcribe when done.</span>
+                  <span className="hidden md:inline">Park frees the mic for another patient. Finish merges all segments.</span>
                 </p>
               </div>
               <button
                 type="button"
                 onClick={closePanel}
-                className="p-2 rounded-lg text-slate-400 hover:bg-slate-200"
+                className="p-2 rounded-lg text-slate-400 hover:bg-slate-200 min-w-[44px] min-h-[44px] flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="overflow-y-auto flex-1 p-2 space-y-2 min-h-0">
+            <div className="overflow-y-auto flex-1 p-2 space-y-2 min-h-0 [-webkit-overflow-scrolling:touch]">
               {sessions.length === 0 ? (
                 <p className="text-sm text-slate-500 text-center py-8 px-4">
-                  No active recordings. Open a patient and tap the mic.
+                  No active recordings. Open a patient and tap the microphone.
                 </p>
               ) : (
                 sessions.map((s) => (
@@ -294,13 +429,13 @@ export const MultiSessionScribe: React.FC<Props> = ({
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="font-semibold text-slate-800 truncate">{s.patientName}</p>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-slate-800 break-words">{s.patientName}</p>
                         <p className="text-[10px] text-slate-500 uppercase tracking-wide mt-0.5">
                           {s.status.replace('_', ' ')} · {s.segmentCount} segment{s.segmentCount === 1 ? '' : 's'}
                         </p>
                       </div>
-                      <div className="flex flex-wrap gap-1 justify-end shrink-0">
+                      <div className="flex flex-wrap gap-1 justify-end shrink-0 max-w-[45%] sm:max-w-none">
                         {s.status === 'paused' && (
                           <button
                             type="button"
@@ -311,7 +446,7 @@ export const MultiSessionScribe: React.FC<Props> = ({
                                 onError('Could not resume.');
                               }
                             }}
-                            className="text-[10px] font-bold uppercase px-2 py-1.5 rounded-lg bg-teal-600 text-white"
+                            className="text-[10px] font-bold uppercase min-h-[40px] px-2 py-2 rounded-lg bg-teal-600 text-white"
                           >
                             Resume
                           </button>
@@ -329,7 +464,7 @@ export const MultiSessionScribe: React.FC<Props> = ({
                               }
                             }}
                             disabled={processingPatientIds.has(s.patientId)}
-                            className="text-[10px] font-bold uppercase px-2 py-1.5 rounded-lg bg-emerald-600 text-white disabled:opacity-50"
+                            className="text-[10px] font-bold uppercase min-h-[40px] px-2 py-2 rounded-lg bg-emerald-600 text-white disabled:opacity-50"
                           >
                             Transcribe
                           </button>
@@ -337,19 +472,19 @@ export const MultiSessionScribe: React.FC<Props> = ({
                         <button
                           type="button"
                           onClick={() => discardSession(s.patientId)}
-                          className="text-[10px] font-bold uppercase px-2 py-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 flex items-center gap-0.5"
+                          className="text-[10px] font-bold uppercase min-h-[40px] px-2 py-2 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 flex items-center gap-0.5"
                         >
                           <Trash2 className="w-3 h-3" /> Discard
                         </button>
                       </div>
                     </div>
                     {activeRecordingPatientId === s.patientId && (isLiveCapturing || isMicHeldPaused) && (
-                      <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-slate-100">
+                      <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-slate-100">
                         {isLiveCapturing && (
                           <button
                             type="button"
                             onClick={holdRecording}
-                            className="text-[10px] font-bold px-2 py-1 rounded-lg bg-amber-500 text-white"
+                            className="text-[10px] font-bold min-h-[40px] px-3 py-2 rounded-lg bg-amber-500 text-white"
                           >
                             Hold
                           </button>
@@ -358,7 +493,7 @@ export const MultiSessionScribe: React.FC<Props> = ({
                           <button
                             type="button"
                             onClick={resumeHeldRecording}
-                            className="text-[10px] font-bold px-2 py-1 rounded-lg bg-emerald-600 text-white"
+                            className="text-[10px] font-bold min-h-[40px] px-3 py-2 rounded-lg bg-emerald-600 text-white"
                           >
                             Mic on
                           </button>
@@ -366,7 +501,7 @@ export const MultiSessionScribe: React.FC<Props> = ({
                         <button
                           type="button"
                           onClick={() => parkRecording(s.patientId)}
-                          className="text-[10px] font-bold px-2 py-1 rounded-lg bg-slate-700 text-white"
+                          className="text-[10px] font-bold min-h-[40px] px-3 py-2 rounded-lg bg-slate-700 text-white"
                         >
                           Park
                         </button>

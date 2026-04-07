@@ -1182,52 +1182,62 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   return (
     <div className="flex flex-col h-full min-h-0 bg-white relative w-full max-w-[100vw]">
       {/* Header */}
-      <div className="border-b border-slate-200 px-4 md:px-8 py-4 safe-pad-t flex flex-col md:flex-row md:justify-between md:items-start bg-white shadow-sm z-10 gap-4 shrink-0">
-        <div className="flex items-start gap-3">
-          <button onClick={onBack} className="md:hidden mt-1 p-2 -ml-2 text-slate-500 hover:text-teal-600 rounded-full">
-            <ChevronLeft className="w-6 h-6" />
+      <div className="border-b border-slate-200 px-4 md:px-8 py-3 md:py-4 safe-pad-t flex flex-col md:flex-row md:justify-between md:items-start bg-white shadow-sm z-10 gap-3 md:gap-4 shrink-0">
+        <div className="flex items-start gap-2 md:gap-3 min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={onBack}
+            className="md:hidden shrink-0 mt-0.5 flex items-center gap-1 min-h-[44px] min-w-[44px] px-2 -ml-1 text-teal-700 hover:text-teal-900 hover:bg-teal-50 rounded-xl border border-transparent hover:border-teal-200 transition-colors"
+          >
+            <ChevronLeft className="w-5 h-5 shrink-0" />
+            <span className="text-xs font-bold uppercase tracking-wide">Patients</span>
           </button>
-          <div className="group relative">
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl md:text-3xl font-bold text-slate-800 tracking-tight leading-tight">{patient.name}</h1>
-              <button onClick={startEditPatient} className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 text-slate-400 hover:text-teal-600 hover:bg-slate-100 rounded-full">
-                <Pencil size={16} />
+          <div className="group relative min-w-0 flex-1">
+            <div className="flex items-start gap-2 min-w-0">
+              <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-slate-800 tracking-tight leading-tight break-words min-w-0 flex-1">{patient.name}</h1>
+              <button
+                type="button"
+                onClick={startEditPatient}
+                className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-2 min-h-[44px] min-w-[44px] shrink-0 text-slate-500 hover:text-teal-600 hover:bg-slate-100 rounded-xl"
+                aria-label="Edit patient details"
+              >
+                <Pencil size={18} />
               </button>
             </div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-slate-500 mt-2 font-medium">
+            <div className="flex flex-nowrap md:flex-wrap items-center gap-2 text-sm text-slate-500 mt-2 font-medium overflow-x-auto pb-1 -mx-1 px-1 md:overflow-visible md:mx-0 md:px-0 [-webkit-overflow-scrolling:touch]">
               {patient.folderNumber?.trim() ? (
-                <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap">
+                <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap shrink-0">
                   <Hash className="w-3.5 h-3.5 shrink-0" /> Folder no. {patient.folderNumber.trim()}
                 </span>
               ) : null}
-              <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap">
+              <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap shrink-0">
                 <Calendar className="w-3.5 h-3.5 shrink-0" /> DOB {patient.dob}
               </span>
-              <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap">
+              <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap shrink-0">
                 Age: {patientAgeDisplay}
               </span>
-              <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap">Sex: {patient.sex || 'Unknown'}</span>
+              <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap shrink-0">Sex: {patient.sex || 'Unknown'}</span>
               {patient.contactNumber?.trim() ? (
-                <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap">
+                <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap shrink-0">
                   <Phone className="w-3.5 h-3.5 shrink-0" /> {patient.contactNumber.trim()}
                 </span>
               ) : null}
               {patient.referringDoctor?.trim() ? (
-                <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 max-w-full min-w-0">
+                <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 max-w-[min(200px,55vw)] min-w-0 shrink-0">
                   <span className="truncate">Ref: {patient.referringDoctor.trim()}</span>
                 </span>
               ) : null}
               {visitTypeDisplay ? (
-                <span className="flex items-center gap-1.5 bg-teal-100 text-teal-900 px-2 py-1 rounded whitespace-nowrap text-xs font-bold">
+                <span className="flex items-center gap-1.5 bg-teal-100 text-teal-900 px-2 py-1 rounded whitespace-nowrap text-xs font-bold shrink-0">
                   {visitTypeDisplay}
                 </span>
               ) : null}
               {patient.visitDate?.trim() ? (
-                <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap">
+                <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap shrink-0">
                   <Calendar className="w-3.5 h-3.5 shrink-0" /> Visit {patient.visitDate.trim()}
                 </span>
               ) : null}
-              <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap"><Clock className="w-3.5 h-3.5 shrink-0" /> Last: {patient.lastVisit}</span>
+              <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap shrink-0"><Clock className="w-3.5 h-3.5 shrink-0" /> Last: {patient.lastVisit}</span>
             </div>
           </div>
         </div>
@@ -1267,8 +1277,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 md:p-8 bg-slate-50/50">
+      {/* Content — extra bottom padding on phones so scribe dock doesn’t cover tabs / files */}
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 md:p-8 pb-[max(6rem,calc(env(safe-area-inset-bottom)+10.5rem))] md:pb-8 bg-slate-50/50 overscroll-contain">
         <div className="max-w-6xl mx-auto">
           {/* AI Panel */}
           {hasAiContent && showAiPanel && (

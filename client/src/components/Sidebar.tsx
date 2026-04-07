@@ -186,6 +186,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span className="ml-1 opacity-70">({filteredPatients.length})</span>
             </h3>
           </div>
+          {!searchTerm && filteredPatients.length > 0 && (
+            <p className="md:hidden text-[11px] text-teal-400/90 px-2 mb-3 leading-snug">
+              Tap a patient to open their workspace. Use <span className="font-semibold text-teal-200">All sessions</span> at the bottom to switch dictation between patients.
+            </p>
+          )}
           {filteredPatients.length === 0 ? (
             <div className="text-center py-8 text-teal-400/50">
               <p className="text-sm">No patients found</p>

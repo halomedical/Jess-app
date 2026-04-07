@@ -28,6 +28,17 @@ export const App = () => {
   const [newPatientSex, setNewPatientSex] = useState<'M' | 'F'>('M');
   const [newPatientFolderNumber, setNewPatientFolderNumber] = useState("");
   const [newPatientContact, setNewPatientContact] = useState("");
+  const [newPatientReferringDoctor, setNewPatientReferringDoctor] = useState("");
+  const [newPatientVisitType, setNewPatientVisitType] = useState<'new' | 'follow_up'>('new');
+  const [newPatientVisitDate, setNewPatientVisitDate] = useState("");
+
+  const localIsoDate = () => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
 
   // Settings / profile state
   const [showSettings, setShowSettings] = useState(false);
@@ -139,6 +150,7 @@ export const App = () => {
 
   const openCreateModal = () => {
     setLoading(false);
+    setNewPatientVisitDate(localIsoDate());
     setShowCreateModal(true);
   };
 
@@ -149,12 +161,19 @@ export const App = () => {
       showToast('Please select a date of birth.', 'error');
       return;
     }
+    if (!newPatientVisitDate) {
+      showToast('Please select the visit date.', 'error');
+      return;
+    }
 
     setLoading(true);
     try {
       const newP = await createPatient(newPatientName, newPatientDob, newPatientSex, {
         folderNumber: newPatientFolderNumber.trim() || undefined,
         contactNumber: newPatientContact.trim() || undefined,
+        referringDoctor: newPatientReferringDoctor.trim() || undefined,
+        visitType: newPatientVisitType,
+        visitDate: newPatientVisitDate,
       });
       if (newP) {
         await refreshPatients();
@@ -165,6 +184,9 @@ export const App = () => {
         setNewPatientSex("M");
         setNewPatientFolderNumber("");
         setNewPatientContact("");
+        setNewPatientReferringDoctor("");
+        setNewPatientVisitType('new');
+        setNewPatientVisitDate(localIsoDate());
         showToast('Patient folder created successfully.', 'success');
       }
     } catch (error) {
@@ -309,7 +331,7 @@ export const App = () => {
       {/* CREATE PATIENT MODAL */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4 safe-pad-b">
-          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-md max-h-[90dvh] overflow-y-auto p-6 sm:m-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-lg max-h-[90dvh] overflow-y-auto p-6 sm:m-4">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><UserPlus className="text-teal-600" size={24}/> New Patient Folder</h2>
               <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition"><X size={20} /></button>
@@ -335,16 +357,51 @@ export const App = () => {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-600 mb-1.5">Folder / file number</label>
-                  <input type="text" placeholder="Optional — e.g. MRN, filing ref" value={newPatientFolderNumber} onChange={(e) => setNewPatientFolderNumber(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
+                  <label className="block text-sm font-semibold text-slate-600 mb-1.5">Folder number</label>
+                  <input type="text" placeholder="e.g. MRN, filing reference" value={newPatientFolderNumber} onChange={(e) => setNewPatientFolderNumber(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-600 mb-1.5">Contact number</label>
-                  <input type="tel" placeholder="Optional — phone or mobile" value={newPatientContact} onChange={(e) => setNewPatientContact(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
+                  <label className="block text-sm font-semibold text-slate-600 mb-1.5">Cellphone number</label>
+                  <input type="tel" placeholder="e.g. 082 123 4567" value={newPatientContact} onChange={(e) => setNewPatientContact(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-600 mb-1.5">Referring doctor</label>
+                  <input type="text" placeholder="e.g. Dr A. Nkomo" value={newPatientReferringDoctor} onChange={(e) => setNewPatientReferringDoctor(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-600 mb-1.5">Patient visit</label>
+                  <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setNewPatientVisitType('new')}
+                      className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${newPatientVisitType === 'new' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                      New patient
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewPatientVisitType('follow_up')}
+                      className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${newPatientVisitType === 'follow_up' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                      Follow-up
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
+                    <Calendar size={14} /> Visit date <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={newPatientVisitDate}
+                    onChange={(e) => setNewPatientVisitDate(e.target.value)}
+                    className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">Encounter or registration date (defaults to today).</p>
                 </div>
                 <div className="pt-2 flex gap-3">
                   <button type="button" onClick={() => setShowCreateModal(false)} className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition">Cancel</button>
-                  <button type="submit" disabled={!newPatientName.trim() || !newPatientDob || loading} className="flex-1 bg-teal-600 hover:bg-teal-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-teal-600/20 disabled:opacity-50 disabled:shadow-none transition flex items-center justify-center gap-2">
+                  <button type="submit" disabled={!newPatientName.trim() || !newPatientDob || !newPatientVisitDate || loading} className="flex-1 bg-teal-600 hover:bg-teal-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-teal-600/20 disabled:opacity-50 disabled:shadow-none transition flex items-center justify-center gap-2">
                     {loading ? <Loader className="animate-spin" size={18}/> : 'Create Folder'}
                   </button>
                 </div>

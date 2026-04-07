@@ -218,6 +218,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [editSex, setEditSex] = useState<'M' | 'F'>('M');
   const [editFolderNumber, setEditFolderNumber] = useState('');
   const [editContactNumber, setEditContactNumber] = useState('');
+  const [editReferringDoctor, setEditReferringDoctor] = useState('');
+  const [editVisitType, setEditVisitType] = useState<'new' | 'follow_up'>('new');
+  const [editVisitDate, setEditVisitDate] = useState('');
 
   const [editingFile, setEditingFile] = useState<DriveFile | null>(null);
   const [editFileName, setEditFileName] = useState("");
@@ -240,8 +243,20 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       sex: (patient.sex === 'F' ? 'F' : 'M') as 'M' | 'F',
       folderNumber: patient.folderNumber,
       contactNumber: patient.contactNumber,
+      referringDoctor: patient.referringDoctor,
+      visitType: patient.visitType,
+      visitDate: patient.visitDate,
     }),
-    [patient.name, patient.dob, patient.sex, patient.folderNumber, patient.contactNumber]
+    [
+      patient.name,
+      patient.dob,
+      patient.sex,
+      patient.folderNumber,
+      patient.contactNumber,
+      patient.referringDoctor,
+      patient.visitType,
+      patient.visitDate,
+    ]
   );
   const patientEditorDraftsRef = useRef<Record<string, PatientEditorDraft>>({});
   const activeDraftPatientIdRef = useRef(patient.id);
@@ -494,64 +509,72 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0) return;
-    const file = e.target.files[0];
+    const input = e.target;
+    if (!input.files || input.files.length === 0) return;
+    const file = input.files[0];
     const targetId = uploadTargetFolderId;
 
     setStatus(AppStatus.UPLOADING);
-    setUploadProgress(10);
+    setUploadProgress(5);
     setUploadMessage(`Uploading ${file.name}...`);
 
-    // Track interval in a ref so it's cleaned up on unmount
     if (uploadIntervalRef.current) clearInterval(uploadIntervalRef.current);
     uploadIntervalRef.current = setInterval(() => {
-      setUploadProgress(prev => (prev >= 90 ? 90 : prev + 10));
-    }, 200);
+      setUploadProgress((prev) => (prev >= 88 ? 88 : prev + 6));
+    }, 280);
 
-    await new Promise(r => setTimeout(r, 2000));
-    if (uploadIntervalRef.current) {
-      clearInterval(uploadIntervalRef.current);
-      uploadIntervalRef.current = null;
-    }
-    setUploadProgress(100);
+    const isImage =
+      (file.type || '').toLowerCase().startsWith('image/') ||
+      /\.(jpe?g|png|gif|webp|svg)$/i.test(file.name);
 
-    setStatus(AppStatus.ANALYZING);
-    setUploadMessage(null);
+    const readDataUrl = () =>
+      new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error ?? new Error('Read failed'));
+        reader.readAsDataURL(file);
+      });
 
-    const performUpload = async (base64?: string) => {
+    try {
+      let imageBase64: string | undefined;
+      if (isImage) {
+        setStatus(AppStatus.ANALYZING);
+        setUploadMessage('Preparing image…');
+        const dataUrl = await readDataUrl();
+        const comma = dataUrl.indexOf(',');
+        imageBase64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+      }
+
       let finalName = file.name;
       try {
-        if (base64 && file.type.startsWith('image/')) {
-          setUploadMessage("HALO is analyzing visual features...");
-          finalName = await analyzeAndRenameImage(base64);
+        if (imageBase64) {
+          setUploadMessage('HALO is analyzing visual features...');
+          finalName = await analyzeAndRenameImage(imageBase64);
           setUploadMessage(`AI Renamed: ${finalName}`);
         }
       } catch {
-        // AI rename not available
+        /* AI rename optional */
       }
 
-      try {
-        await uploadFile(targetId, file, finalName);
-        await loadFolderContents(currentFolderId);
-        onToast(`File uploaded to "${uploadTargetLabel}".`, 'success');
-      } catch (err) {
-        onToast(getErrorMessage(err), 'error');
+      setStatus(AppStatus.UPLOADING);
+      setUploadMessage(`Uploading ${finalName}...`);
+      await uploadFile(targetId, file, finalName);
+      setUploadProgress(100);
+      await loadFolderContents(currentFolderId);
+      onToast(`File uploaded to "${uploadTargetLabel}".`, 'success');
+    } catch (err) {
+      onToast(getErrorMessage(err), 'error');
+    } finally {
+      if (uploadIntervalRef.current) {
+        clearInterval(uploadIntervalRef.current);
+        uploadIntervalRef.current = null;
       }
       setStatus(AppStatus.IDLE);
-    };
-
-    if (file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64 = (reader.result as string).split(',')[1];
-        performUpload(base64);
-      };
-      reader.readAsDataURL(file);
-    } else {
-      performUpload();
+      setUploadMessage(null);
+      setUploadProgress(0);
     }
 
-    e.target.value = '';
+    input.value = '';
   };
 
   useEffect(() => {
@@ -1038,11 +1061,29 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     setEditSex(patient.sex || 'M');
     setEditFolderNumber(patient.folderNumber ?? '');
     setEditContactNumber(patient.contactNumber ?? '');
+    setEditReferringDoctor(patient.referringDoctor ?? '');
+    setEditVisitType(patient.visitType === 'follow_up' ? 'follow_up' : 'new');
+    const todayLocal = () => {
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+    const visitFallback =
+      patient.visitDate?.trim() ||
+      (/^\d{4}-\d{2}-\d{2}$/.test(patient.lastVisit) ? patient.lastVisit : '') ||
+      todayLocal();
+    setEditVisitDate(visitFallback);
     setEditingPatient(true);
   };
 
   const savePatientEdit = async () => {
     if (!editName.trim() || !editDob) return;
+    if (!editVisitDate.trim()) {
+      onToast('Visit date is required.', 'error');
+      return;
+    }
     try {
       await updatePatient(patient.id, {
         name: editName,
@@ -1050,6 +1091,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         sex: editSex,
         folderNumber: editFolderNumber.trim(),
         contactNumber: editContactNumber.trim(),
+        referringDoctor: editReferringDoctor.trim(),
+        visitType: editVisitType,
+        visitDate: editVisitDate.trim(),
       });
       setEditingPatient(false);
       onDataChange();
@@ -1132,6 +1176,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const emailActionsBusy = status === AppStatus.FILING || status === AppStatus.SAVING;
   const stickyEmailDisabled = emailActionsBusy || !userEmail?.trim();
   const patientAgeDisplay = formatAgeFromIsoDob(patient.dob);
+  const visitTypeDisplay =
+    patient.visitType === 'new' ? 'New patient' : patient.visitType === 'follow_up' ? 'Follow-up' : null;
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-white relative w-full max-w-[100vw]">
@@ -1164,6 +1210,21 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               {patient.contactNumber?.trim() ? (
                 <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap">
                   <Phone className="w-3.5 h-3.5 shrink-0" /> {patient.contactNumber.trim()}
+                </span>
+              ) : null}
+              {patient.referringDoctor?.trim() ? (
+                <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 max-w-full min-w-0">
+                  <span className="truncate">Ref: {patient.referringDoctor.trim()}</span>
+                </span>
+              ) : null}
+              {visitTypeDisplay ? (
+                <span className="flex items-center gap-1.5 bg-teal-100 text-teal-900 px-2 py-1 rounded whitespace-nowrap text-xs font-bold">
+                  {visitTypeDisplay}
+                </span>
+              ) : null}
+              {patient.visitDate?.trim() ? (
+                <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap">
+                  <Calendar className="w-3.5 h-3.5 shrink-0" /> Visit {patient.visitDate.trim()}
                 </span>
               ) : null}
               <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap"><Clock className="w-3.5 h-3.5 shrink-0" /> Last: {patient.lastVisit}</span>
@@ -1382,7 +1443,16 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                       <p><span className="font-semibold text-slate-700">Folder no.:</span> {patient.folderNumber.trim()}</p>
                     ) : null}
                     {patient.contactNumber?.trim() ? (
-                      <p><span className="font-semibold text-slate-700">Contact:</span> {patient.contactNumber.trim()}</p>
+                      <p><span className="font-semibold text-slate-700">Cellphone:</span> {patient.contactNumber.trim()}</p>
+                    ) : null}
+                    {patient.referringDoctor?.trim() ? (
+                      <p><span className="font-semibold text-slate-700">Referring doctor:</span> {patient.referringDoctor.trim()}</p>
+                    ) : null}
+                    {visitTypeDisplay ? (
+                      <p><span className="font-semibold text-slate-700">Visit:</span> {visitTypeDisplay}</p>
+                    ) : null}
+                    {patient.visitDate?.trim() ? (
+                      <p><span className="font-semibold text-slate-700">Visit date:</span> {patient.visitDate.trim()}</p>
                     ) : null}
                     <p className="text-xs text-teal-900/80 mt-2 leading-snug">
                       These details are merged into generated notes, DOCX, and emails so templates stay aligned with the chart.
@@ -1500,7 +1570,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       {/* EDIT PATIENT MODAL */}
       {editingPatient && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4 safe-pad-b">
-          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl p-6 w-full max-w-sm max-h-[90dvh] overflow-y-auto sm:m-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl p-6 w-full max-w-md max-h-[90dvh] overflow-y-auto sm:m-4">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-slate-800">Edit Patient Details</h3>
               <button onClick={() => setEditingPatient(false)} className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition"><X size={20} /></button>
@@ -1522,12 +1592,27 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-slate-600 mb-1.5">Folder / file number</label>
-                <input type="text" value={editFolderNumber} onChange={e => setEditFolderNumber(e.target.value)} placeholder="e.g. MRN, ward file no." className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
+                <label className="block text-sm font-semibold text-slate-600 mb-1.5">Folder number</label>
+                <input type="text" value={editFolderNumber} onChange={e => setEditFolderNumber(e.target.value)} placeholder="e.g. MRN, filing reference" className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-slate-600 mb-1.5">Contact number</label>
-                <input type="tel" value={editContactNumber} onChange={e => setEditContactNumber(e.target.value)} placeholder="Phone or mobile" className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
+                <label className="block text-sm font-semibold text-slate-600 mb-1.5">Cellphone number</label>
+                <input type="tel" value={editContactNumber} onChange={e => setEditContactNumber(e.target.value)} placeholder="e.g. 082 123 4567" className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-600 mb-1.5">Referring doctor</label>
+                <input type="text" value={editReferringDoctor} onChange={e => setEditReferringDoctor(e.target.value)} placeholder="e.g. Dr A. Nkomo" className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-600 mb-1.5">Patient visit</label>
+                <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
+                  <button type="button" onClick={() => setEditVisitType('new')} className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${editVisitType === 'new' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>New patient</button>
+                  <button type="button" onClick={() => setEditVisitType('follow_up')} className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${editVisitType === 'follow_up' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Follow-up</button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-600 mb-1.5">Visit date <span className="text-rose-500">*</span></label>
+                <input type="date" value={editVisitDate} onChange={e => setEditVisitDate(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setEditingPatient(false)} className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition">Cancel</button>

@@ -3,7 +3,14 @@ import type { Patient } from './types';
 /** Fields used when building note / email / DOCX context from the chart. */
 export type PatientForDocuments = Pick<
   Patient,
-  'name' | 'dob' | 'sex' | 'folderNumber' | 'contactNumber'
+  | 'name'
+  | 'dob'
+  | 'sex'
+  | 'folderNumber'
+  | 'contactNumber'
+  | 'referringDoctor'
+  | 'visitType'
+  | 'visitDate'
 >;
 
 /** Human-readable age from YYYY-MM-DD; returns "—" if invalid. */

@@ -1,3 +1,4 @@
+import path from 'path';
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/requireAuth';
 import { config } from '../config';
@@ -9,6 +10,7 @@ import {
   sanitizeString,
   isValidDate,
   isValidSex,
+  isValidVisitType,
   parseFolderString,
   parsePatientFolder,
 } from '../services/drive';
@@ -31,6 +33,55 @@ const ALLOWED_UPLOAD_TYPES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
 ];
+
+/** When the browser sends an empty type, infer from extension (must stay in sync with ALLOWED). */
+const EXTENSION_TO_MIME: Record<string, string> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.pdf': 'application/pdf',
+  '.txt': 'text/plain',
+  '.csv': 'text/csv',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+};
+
+const REPORTED_MIME_ALIASES: Record<string, string> = {
+  'image/jpg': 'image/jpeg',
+};
+
+function resolveUploadMimeType(fileName: string, reportedRaw: string): string | null {
+  let t = (reportedRaw || '').trim().toLowerCase();
+  if (t && REPORTED_MIME_ALIASES[t]) t = REPORTED_MIME_ALIASES[t];
+  if (t && ALLOWED_UPLOAD_TYPES.includes(t)) return t;
+  const ext = path.extname(fileName).toLowerCase();
+  const inferred = EXTENSION_TO_MIME[ext];
+  if (inferred && ALLOWED_UPLOAD_TYPES.includes(inferred)) return inferred;
+  return null;
+}
+
+/** Drive multipart uploads expect raw media bytes in part 2, not base64 text. */
+function buildDriveMultipartBody(
+  boundary: string,
+  metadata: { name: string; parents: string[]; mimeType: string },
+  mediaBytes: Buffer
+): Buffer {
+  const metaPart = JSON.stringify(metadata);
+  const head = Buffer.from(
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metaPart}\r\n` +
+      `--${boundary}\r\nContent-Type: ${metadata.mimeType}\r\n\r\n`,
+    'utf8'
+  );
+  const tail = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8');
+  return Buffer.concat([head, mediaBytes, tail]);
+}
+
 const DEFAULT_PAGE_SIZE = 50;
 
 // --- Routes ---
@@ -140,6 +191,10 @@ router.post('/patients', async (req: Request, res: Response) => {
     const sex = sanitizeString(req.body.sex);
     const folderNumber = sanitizeString(req.body.folderNumber, 80);
     const contactNumber = sanitizeString(req.body.contactNumber, 80);
+    const referringDoctor = sanitizeString(req.body.referringDoctor, 200);
+    const visitTypeRaw = sanitizeString(req.body.visitType, 20);
+    const visitType = isValidVisitType(visitTypeRaw) ? visitTypeRaw : 'new';
+    const visitDate = sanitizeString(req.body.visitDate, 12);
 
     if (!name || name.length < 2) {
       res.status(400).json({ error: 'Patient name must be at least 2 characters.' });
@@ -151,6 +206,10 @@ router.post('/patients', async (req: Request, res: Response) => {
     }
     if (!isValidSex(sex)) {
       res.status(400).json({ error: 'Sex must be M or F.' });
+      return;
+    }
+    if (!visitDate || !isValidDate(visitDate)) {
+      res.status(400).json({ error: 'Visit date is required (YYYY-MM-DD).' });
       return;
     }
 
@@ -174,6 +233,9 @@ router.post('/patients', async (req: Request, res: Response) => {
           patientSex: sex,
           ...(folderNumber ? { patientFolderNumber: folderNumber } : {}),
           ...(contactNumber ? { patientContact: contactNumber } : {}),
+          ...(referringDoctor ? { patientReferringDoctor: referringDoctor } : {}),
+          patientVisitType: visitType,
+          patientVisitDate: visitDate,
         },
       }),
     });
@@ -196,6 +258,9 @@ router.post('/patients', async (req: Request, res: Response) => {
       alerts: [],
       ...(folderNumber ? { folderNumber } : {}),
       ...(contactNumber ? { contactNumber } : {}),
+      ...(referringDoctor ? { referringDoctor } : {}),
+      visitType,
+      visitDate,
     });
   } catch (err) {
     console.error('Create patient error:', err);
@@ -216,6 +281,13 @@ router.patch('/patients/:id', async (req: Request, res: Response) => {
       req.body.folderNumber !== undefined ? sanitizeString(req.body.folderNumber, 80) : undefined;
     const contactNumber =
       req.body.contactNumber !== undefined ? sanitizeString(req.body.contactNumber, 80) : undefined;
+    const referringDoctor =
+      req.body.referringDoctor !== undefined ? sanitizeString(req.body.referringDoctor, 200) : undefined;
+    const visitTypeBody = req.body.visitType;
+    const visitTypePatch =
+      visitTypeBody !== undefined ? sanitizeString(visitTypeBody, 20) : undefined;
+    const visitDatePatch =
+      req.body.visitDate !== undefined ? sanitizeString(req.body.visitDate, 12) : undefined;
 
     if (name !== undefined && name.length < 2) {
       res.status(400).json({ error: 'Patient name must be at least 2 characters.' });
@@ -227,6 +299,14 @@ router.patch('/patients/:id', async (req: Request, res: Response) => {
     }
     if (sex !== undefined && !isValidSex(sex)) {
       res.status(400).json({ error: 'Sex must be M or F.' });
+      return;
+    }
+    if (visitTypePatch !== undefined && visitTypePatch !== '' && !isValidVisitType(visitTypePatch)) {
+      res.status(400).json({ error: 'Visit type must be new or follow_up.' });
+      return;
+    }
+    if (visitDatePatch !== undefined && visitDatePatch !== '' && !isValidDate(visitDatePatch)) {
+      res.status(400).json({ error: 'Invalid visit date. Use YYYY-MM-DD.' });
       return;
     }
 
@@ -263,6 +343,15 @@ router.patch('/patients/:id', async (req: Request, res: Response) => {
     }
     if (contactNumber !== undefined) {
       appProperties.patientContact = contactNumber;
+    }
+    if (referringDoctor !== undefined) {
+      appProperties.patientReferringDoctor = referringDoctor;
+    }
+    if (visitTypePatch !== undefined && visitTypePatch !== '') {
+      appProperties.patientVisitType = visitTypePatch;
+    }
+    if (visitDatePatch !== undefined && visitDatePatch !== '') {
+      appProperties.patientVisitDate = visitDatePatch;
     }
 
     await fetch(`${driveApi}/files/${id}`, {
@@ -430,16 +519,13 @@ router.get('/patients/:id/files', async (req: Request, res: Response) => {
 router.post('/patients/:id/upload', async (req: Request, res: Response) => {
   try {
     const token = req.session.accessToken!;
+    const parentFolderId = typeof req.params.id === 'string' ? req.params.id : req.params.id[0];
     const fileName = sanitizeString(req.body.fileName, 255);
-    const fileType = sanitizeString(req.body.fileType, 100);
+    const fileTypeRaw = sanitizeString(req.body.fileType, 100);
     const fileData = req.body.fileData as string;
 
     if (!fileName) {
       res.status(400).json({ error: 'File name is required.' });
-      return;
-    }
-    if (!fileType || !ALLOWED_UPLOAD_TYPES.includes(fileType)) {
-      res.status(400).json({ error: `File type not allowed. Accepted: ${ALLOWED_UPLOAD_TYPES.join(', ')}` });
       return;
     }
     if (!fileData || typeof fileData !== 'string') {
@@ -447,30 +533,41 @@ router.post('/patients/:id/upload', async (req: Request, res: Response) => {
       return;
     }
 
-    const estimatedSize = Math.ceil(fileData.length * 3 / 4);
-    if (estimatedSize > MAX_FILE_SIZE_BYTES) {
+    const fileType = resolveUploadMimeType(fileName, fileTypeRaw);
+    if (!fileType) {
+      res.status(400).json({
+        error: `File type not allowed or unknown (reported: "${fileTypeRaw || 'empty'}"). Allowed: ${ALLOWED_UPLOAD_TYPES.join(', ')}`,
+      });
+      return;
+    }
+
+    let mediaBytes: Buffer;
+    try {
+      mediaBytes = Buffer.from(fileData.replace(/\s/g, ''), 'base64');
+    } catch {
+      res.status(400).json({ error: 'Invalid file data encoding.' });
+      return;
+    }
+    if (mediaBytes.length === 0) {
+      res.status(400).json({ error: 'Empty file.' });
+      return;
+    }
+    if (mediaBytes.length > MAX_FILE_SIZE_BYTES) {
       res.status(400).json({ error: `File too large. Maximum size is ${MAX_FILE_SIZE_MB}MB.` });
       return;
     }
 
     const metadata = {
       name: fileName,
-      parents: [req.params.id],
+      parents: [parentFolderId],
       mimeType: fileType,
     };
 
-    const boundary = 'halo_upload_boundary';
-    const metaPart = JSON.stringify(metadata);
-
-    const multipartBody = Buffer.from(
-      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metaPart}\r\n` +
-      `--${boundary}\r\nContent-Type: ${fileType}\r\nContent-Transfer-Encoding: base64\r\n\r\n` +
-      `${fileData}\r\n` +
-      `--${boundary}--`
-    );
+    const boundary = 'halo_upload_boundary_' + Math.random().toString(36).slice(2);
+    const multipartBody = buildDriveMultipartBody(boundary, metadata, mediaBytes);
 
     const uploadRes = await fetch(
-      `${uploadApi}/files?uploadType=multipart`,
+      `${uploadApi}/files?uploadType=multipart&fields=id,name,mimeType,webViewLink`,
       {
         method: 'POST',
         headers: {

@@ -426,6 +426,10 @@ export function isValidSex(sex: string): sex is 'M' | 'F' {
   return sex === 'M' || sex === 'F';
 }
 
+export function isValidVisitType(v: string): v is 'new' | 'follow_up' {
+  return v === 'new' || v === 'follow_up';
+}
+
 // --- Patient Folder Parsing ---
 
 export function parseFolderString(folderName: string): { pName: string; pDob: string; pSex: string } | null {
@@ -485,5 +489,12 @@ export function parsePatientFolder(f: DriveFileRaw) {
     alerts: [] as string[],
     folderNumber: f.appProperties?.patientFolderNumber?.trim() || undefined,
     contactNumber: f.appProperties?.patientContact?.trim() || undefined,
+    referringDoctor: f.appProperties?.patientReferringDoctor?.trim() || undefined,
+    visitType: (() => {
+      const t = f.appProperties?.patientVisitType?.trim();
+      if (t === 'new' || t === 'follow_up') return t;
+      return undefined;
+    })(),
+    visitDate: f.appProperties?.patientVisitDate?.trim() || undefined,
   };
 }

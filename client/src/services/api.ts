@@ -117,7 +117,13 @@ export const createPatient = (
   name: string,
   dob: string,
   sex: 'M' | 'F',
-  opts?: { folderNumber?: string; contactNumber?: string }
+  opts?: {
+    folderNumber?: string;
+    contactNumber?: string;
+    referringDoctor?: string;
+    visitType?: 'new' | 'follow_up';
+    visitDate?: string;
+  }
 ) =>
   request<Patient>('/api/drive/patients', {
     method: 'POST',
@@ -127,12 +133,24 @@ export const createPatient = (
       sex,
       ...(opts?.folderNumber?.trim() ? { folderNumber: opts.folderNumber.trim() } : {}),
       ...(opts?.contactNumber?.trim() ? { contactNumber: opts.contactNumber.trim() } : {}),
+      ...(opts?.referringDoctor?.trim() ? { referringDoctor: opts.referringDoctor.trim() } : {}),
+      visitType: opts?.visitType ?? 'new',
+      visitDate: opts?.visitDate ?? '',
     }),
   });
 
 export const updatePatient = (
   id: string,
-  updates: { name?: string; dob?: string; sex?: string; folderNumber?: string; contactNumber?: string }
+  updates: {
+    name?: string;
+    dob?: string;
+    sex?: string;
+    folderNumber?: string;
+    contactNumber?: string;
+    referringDoctor?: string;
+    visitType?: 'new' | 'follow_up';
+    visitDate?: string;
+  }
 ) =>
   request(`/api/drive/patients/${id}`, {
     method: 'PATCH',
@@ -204,11 +222,12 @@ export const fetchFolderContents = async (folderId: string): Promise<DriveFile[]
 
 export const uploadFile = async (patientId: string, file: File, customName?: string) => {
   const base64 = await fileToBase64(file);
+  const fileType = resolveUploadMimeType(file);
   return request(`/api/drive/patients/${patientId}/upload`, {
     method: 'POST',
     body: JSON.stringify({
       fileName: customName || file.name,
-      fileType: file.type,
+      fileType,
       fileData: base64,
     }),
   });
@@ -338,6 +357,9 @@ export const sendWorkspaceFileEmail = (params: {
     sex: 'M' | 'F';
     folderNumber?: string;
     contactNumber?: string;
+    referringDoctor?: string;
+    visitType?: 'new' | 'follow_up';
+    visitDate?: string;
   };
 }) =>
   request<{ ok: boolean; message: string }>('/api/email-workspace-file', {
@@ -449,9 +471,37 @@ function fileToBase64(file: File): Promise<string> {
     const reader = new FileReader();
     reader.onloadend = () => {
       const result = reader.result as string;
-      resolve(result.split(',')[1]);
+      const i = result.indexOf(',');
+      resolve(i >= 0 ? result.slice(i + 1) : result);
     };
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+/** Match server allowlist / extension map when `File.type` is missing (common on some OS / exports). */
+function resolveUploadMimeType(file: File): string {
+  const raw = (file.type || '').trim().toLowerCase();
+  if (raw === 'image/jpg') return 'image/jpeg';
+  if (raw) return file.type.trim();
+  const name = file.name.toLowerCase();
+  const dot = name.lastIndexOf('.');
+  const ext = dot >= 0 ? name.slice(dot) : '';
+  const EXT: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.svg': 'image/svg+xml',
+    '.pdf': 'application/pdf',
+    '.txt': 'text/plain',
+    '.csv': 'text/csv',
+    '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.xls': 'application/vnd.ms-excel',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  };
+  return EXT[ext] || '';
 }

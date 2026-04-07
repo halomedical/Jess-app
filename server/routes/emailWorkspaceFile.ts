@@ -45,15 +45,23 @@ function compactPatientForFileEmail(p: {
   sex?: string;
   folderNumber?: string;
   contactNumber?: string;
+  referringDoctor?: string;
+  visitType?: 'new' | 'follow_up';
+  visitDate?: string;
 }): string {
   const age = formatAgeFromIsoDob(p.dob || '');
+  const vt =
+    p.visitType === 'new' ? 'New patient' : p.visitType === 'follow_up' ? 'Follow-up' : '';
   const lines = [
     '--- Patient (filing reference) ---',
     `Name: ${(p.name || '—').trim() || '—'}`,
     `DOB: ${p.dob || '—'}  |  Age: ${age}  |  Sex: ${p.sex || '—'}`,
   ];
   if (p.folderNumber?.trim()) lines.push(`Folder / file no.: ${p.folderNumber.trim()}`);
-  if (p.contactNumber?.trim()) lines.push(`Contact: ${p.contactNumber.trim()}`);
+  if (p.contactNumber?.trim()) lines.push(`Cellphone / contact: ${p.contactNumber.trim()}`);
+  if (p.referringDoctor?.trim()) lines.push(`Referring doctor: ${p.referringDoctor.trim()}`);
+  if (vt) lines.push(`Visit type: ${vt}`);
+  if (p.visitDate?.trim()) lines.push(`Visit date: ${p.visitDate.trim()}`);
   lines.push(
     '---',
     'This email is for the workspace file named below (attached or linked).',
@@ -95,6 +103,9 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       sex?: string;
       folderNumber?: string;
       contactNumber?: string;
+      referringDoctor?: string;
+      visitType?: 'new' | 'follow_up';
+      visitDate?: string;
     };
   };
 

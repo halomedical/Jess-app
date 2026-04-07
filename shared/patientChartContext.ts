@@ -1,4 +1,3 @@
-import type { Patient } from './types';
 import { formatAgeFromIsoDob, type PatientForDocuments } from './patientDemographics';
 
 export type { PatientForDocuments };
@@ -7,6 +6,12 @@ export type { PatientForDocuments };
  * Structured block prepended to dictation or note text for Halo / Gemini so template
  * header fields (name, surname, DOB, sex, age, folder #, contact) are filled from the chart.
  */
+function visitTypeLabel(visitType: PatientForDocuments['visitType']): string {
+  if (visitType === 'new') return 'New patient';
+  if (visitType === 'follow_up') return 'Follow-up';
+  return '';
+}
+
 export function buildPatientDemographicsForNoteInput(patient: PatientForDocuments): string {
   const name = (patient.name ?? '').trim();
   const parts = name.split(/\s+/).filter(Boolean);
@@ -15,9 +20,12 @@ export function buildPatientDemographicsForNoteInput(patient: PatientForDocument
   const age = formatAgeFromIsoDob(patient.dob || '');
   const folderNo = (patient.folderNumber ?? '').trim();
   const contact = (patient.contactNumber ?? '').trim();
+  const refDoc = (patient.referringDoctor ?? '').trim();
+  const vt = visitTypeLabel(patient.visitType);
+  const vDate = (patient.visitDate ?? '').trim();
 
   const lines = [
-    '--- Patient identifiers (from electronic chart — use these for template header fields: patient name, surname, DOB, age, sex, folder/file number, contact; do not leave blank when provided) ---',
+    '--- Patient identifiers (from electronic chart — use these for template header fields: patient name, surname, DOB, age, sex, folder/file number, cellphone, referring doctor, visit type, visit date; do not leave blank when provided) ---',
     `Full name (as recorded): ${name || '—'}`,
     givenNames && surname ? `Given / first name(s): ${givenNames}` : '',
     surname ? `Surname / family name: ${surname}` : '',
@@ -25,7 +33,10 @@ export function buildPatientDemographicsForNoteInput(patient: PatientForDocument
     `Age (years, from DOB): ${age}`,
     `Sex: ${patient.sex || '—'}`,
     folderNo ? `Folder / file number: ${folderNo}` : '',
-    contact ? `Contact number: ${contact}` : '',
+    contact ? `Cellphone / contact number: ${contact}` : '',
+    refDoc ? `Referring doctor: ${refDoc}` : '',
+    vt ? `Visit type: ${vt}` : '',
+    vDate ? `Visit / encounter date: ${vDate}` : '',
     '--- End patient identifiers ---',
   ].filter(Boolean);
 

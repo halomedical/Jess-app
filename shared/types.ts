@@ -11,6 +11,14 @@ export interface Patient {
   folderNumber?: string;
   /** Contact phone (stored in Drive appProperties). */
   contactNumber?: string;
+  /** Referring doctor name (stored in Drive appProperties). */
+  referringDoctor?: string;
+  /** Whether this encounter is a new registration or follow-up. */
+  visitType?: 'new' | 'follow_up';
+  /**
+   * Encounter / visit date (YYYY-MM-DD), distinct from DOB — stored in Drive appProperties.
+   */
+  visitDate?: string;
 }
 
 export interface DriveFile {

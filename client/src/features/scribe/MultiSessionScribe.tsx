@@ -40,15 +40,17 @@ export const MultiSessionScribe: React.FC<Props> = ({
     discardSession,
     isLiveCapturing,
     isMicHeldPaused,
-    processingPatientId,
+    processingPatientIds,
   } = useRecordingSessions();
 
   const [longWait, setLongWait] = useState(false);
   const longWaitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevPatientRef = useRef<string | null>(null);
 
+  const anyTranscribing = processingPatientIds.size > 0;
+
   useEffect(() => {
-    if (processingPatientId) {
+    if (anyTranscribing) {
       longWaitRef.current = setTimeout(() => setLongWait(true), 10_000);
     } else {
       setLongWait(false);
@@ -57,7 +59,7 @@ export const MultiSessionScribe: React.FC<Props> = ({
     return () => {
       if (longWaitRef.current) clearTimeout(longWaitRef.current);
     };
-  }, [processingPatientId]);
+  }, [anyTranscribing]);
 
   /** Switching patients: park live capture so mic can be used on the next chart */
   useEffect(() => {
@@ -115,17 +117,22 @@ export const MultiSessionScribe: React.FC<Props> = ({
       }
   };
 
-  const fabDisabled = !!processingPatientId;
+  const currentPatientProcessing =
+    !!currentPatientId && processingPatientIds.has(currentPatientId);
+  const fabDisabled =
+    currentPatientProcessing || (!currentPatientId && !isThisPatientRecording);
 
   return (
     <>
       {/* Compact indicators above FAB */}
       <div className="fixed z-50 flex flex-col items-end gap-2 bottom-[max(5.5rem,calc(1.5rem+env(safe-area-inset-bottom)))] right-[max(1rem,env(safe-area-inset-right))] sm:bottom-[5.25rem] sm:right-6 max-w-[min(100vw-1rem,18rem)]">
-        {processingPatientId && (
+        {anyTranscribing && (
           <div className="bg-white border border-teal-200 shadow-lg rounded-2xl px-3 py-2 text-right">
             <div className="flex items-center gap-2 justify-end">
               <Wand2 className="w-3.5 h-3.5 text-teal-500 animate-spin shrink-0" />
-              <span className="text-[11px] font-bold text-teal-800">Transcribing…</span>
+              <span className="text-[11px] font-bold text-teal-800">
+                Transcribing{processingPatientIds.size > 1 ? ` (${processingPatientIds.size})` : ''}…
+              </span>
             </div>
             {longWait && (
               <p className="text-[9px] text-slate-500 mt-1">May take 15–60 s.</p>
@@ -179,7 +186,7 @@ export const MultiSessionScribe: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={handleFinishCurrent}
-                disabled={!!processingPatientId}
+                disabled={currentPatientProcessing}
                 className="touch-manipulation bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-[11px] font-bold px-3 py-2 rounded-xl shadow-md flex items-center gap-1"
               >
                 <Check className="w-3.5 h-3.5" /> Finish &amp; transcribe
@@ -225,7 +232,7 @@ export const MultiSessionScribe: React.FC<Props> = ({
               ? handleFinishCurrent
               : handleMainFab
           }
-          disabled={fabDisabled || (!currentPatientId && !isThisPatientRecording)}
+          disabled={fabDisabled}
           title={
             isThisPatientRecording && (isLiveCapturing || isMicHeldPaused)
               ? 'Finish & send all segments to transcribe'
@@ -234,12 +241,12 @@ export const MultiSessionScribe: React.FC<Props> = ({
           className={`flex items-center justify-center rounded-full shadow-lg transition-all duration-200 touch-manipulation min-w-[48px] min-h-[48px] w-14 h-14 sm:w-12 sm:h-12 ${
             isThisPatientRecording && (isLiveCapturing || isMicHeldPaused)
               ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-              : fabDisabled
+              : fabDisabled && !isThisPatientRecording
                 ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
                 : 'bg-teal-600 hover:bg-teal-700 text-white hover:scale-105 active:scale-95'
           }`}
         >
-          {fabDisabled ? (
+          {currentPatientProcessing ? (
             <Wand2 className="w-5 h-5 animate-spin" />
           ) : isThisPatientRecording && (isLiveCapturing || isMicHeldPaused) ? (
             <Check className="w-6 h-6" />
@@ -321,7 +328,7 @@ export const MultiSessionScribe: React.FC<Props> = ({
                                 onError('Transcription failed.');
                               }
                             }}
-                            disabled={!!processingPatientId}
+                            disabled={processingPatientIds.has(s.patientId)}
                             className="text-[10px] font-bold uppercase px-2 py-1.5 rounded-lg bg-emerald-600 text-white disabled:opacity-50"
                           >
                             Transcribe

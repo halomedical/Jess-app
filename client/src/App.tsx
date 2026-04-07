@@ -158,6 +158,7 @@ export const App = () => {
       });
       if (newP) {
         await refreshPatients();
+        selectPatient(newP.id);
         setShowCreateModal(false);
         setNewPatientName("");
         setNewPatientDob("");

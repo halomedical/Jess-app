@@ -7,6 +7,7 @@ import { config } from './config';
 import authRoutes from './routes/auth';
 import driveRoutes from './routes/drive';
 import aiRoutes from './routes/ai';
+import transcribeRoutes from './routes/transcribe';
 import haloRoutes from './routes/halo';
 import requestTemplateRoutes from './routes/requestTemplate';
 import emailNoteRoutes from './routes/emailNote';
@@ -35,6 +36,15 @@ const aiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'AI rate limit reached. Please wait before trying again.' },
+});
+
+/** Scribes may finish many segments / patients in parallel; keep separate from general AI budget. */
+const transcribeLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Transcription rate limit reached. Please wait a moment and retry.' },
 });
 
 // --- Auth Rate Limiter (prevent brute force) ---
@@ -68,6 +78,7 @@ app.use(session({
 // --- ROUTES ---
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/drive', driveRoutes);
+app.use('/api/ai/transcribe', transcribeLimiter, transcribeRoutes);
 app.use('/api/ai', aiLimiter, aiRoutes);
 app.use('/api/halo', aiLimiter, haloRoutes);
 app.use('/api/request-template', requestTemplateRoutes);

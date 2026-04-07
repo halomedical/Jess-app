@@ -10,6 +10,34 @@ import { transcribeAudio } from '../../services/api';
 import { blobToBase64Raw } from '../../utils/blobToBase64Raw';
 import { mergeTranscriptIntoInAppMirrorDraft } from '../../utils/inAppDraftMirror';
 
+const TRANSCRIBE_SEGMENT_CONCURRENCY = 5;
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker(): Promise<void> {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await mapper(items[i], i);
+    }
+  }
+  const n = Math.min(limit, items.length) || 1;
+  await Promise.all(Array.from({ length: n }, () => worker()));
+  return results;
+}
+
+function mergeIntoPendingMap(map: Map<string, string>, patientId: string, chunk: string): void {
+  const t = chunk.trim();
+  if (!t) return;
+  const prev = map.get(patientId)?.trim();
+  map.set(patientId, prev ? `${prev}\n\n${t}` : t);
+}
+
 export type SessionPublicStatus = 'idle' | 'recording' | 'recording_paused' | 'paused' | 'processing';
 
 export interface RecordingSessionMeta {
@@ -40,7 +68,8 @@ interface RecordingSessionsValue {
   discardSession: (patientId: string) => Promise<void>;
   isLiveCapturing: boolean;
   isMicHeldPaused: boolean;
-  processingPatientId: string | null;
+  /** Patients currently running finish→transcribe (many allowed in parallel). */
+  processingPatientIds: ReadonlySet<string>;
   /** Increments when a new transcript is ready — use in useEffect deps */
   transcriptionNotify: number;
   /** Atomically take the transcript for this patient only (once). */
@@ -62,7 +91,8 @@ export function RecordingSessionsProvider({ children }: { children: React.ReactN
   const [panelOpen, setPanelOpen] = useState(false);
   const [sessionTick, setSessionTick] = useState(0);
   const [liveTick, setLiveTick] = useState(0);
-  const [processingPatientId, setProcessingPatientId] = useState<string | null>(null);
+  const [processingPatientIds, setProcessingPatientIds] = useState(() => new Set<string>());
+  const finishInFlightRef = useRef<Set<string>>(new Set());
   const [transcriptionNotify, setTranscriptionNotify] = useState(0);
   /** Synchronous store when no active listener (e.g. chart not open yet). */
   const pendingTranscriptsRef = useRef<Map<string, string>>(new Map());
@@ -235,26 +265,31 @@ export function RecordingSessionsProvider({ children }: { children: React.ReactN
         await flushActiveMediaRecorder();
       }
 
+      if (finishInFlightRef.current.has(patientId)) {
+        return;
+      }
+
       const segs = segmentsRef.current[patientId];
       if (!segs?.length) {
         bump();
         return;
       }
 
-      setProcessingPatientId(patientId);
+      finishInFlightRef.current.add(patientId);
+      setProcessingPatientIds((prev) => new Set(prev).add(patientId));
       try {
-        /** Each park/resume produces a full WebM/Ogg blob; transcribe clips in parallel (cannot safely byte-merge containers). */
+        /** Each park/resume produces a full WebM/Ogg blob; transcribe clips with bounded concurrency. */
         const valid = segs.filter((seg) => seg.blob?.size);
         if (!valid.length) {
           throw new Error('No speech detected in recordings.');
         }
-        const tasks = valid.map(async (seg) => {
-          const base64 = await blobToBase64Raw(seg.blob);
-          if (!base64) return '';
-          const t = (await transcribeAudio(base64, seg.mimeType || 'audio/webm')).trim();
-          return t;
-        });
-        const parts = (await Promise.all(tasks)).filter(Boolean);
+        const parts = (
+          await mapWithConcurrency(valid, TRANSCRIBE_SEGMENT_CONCURRENCY, async (seg) => {
+            const base64 = await blobToBase64Raw(seg.blob);
+            if (!base64) return '';
+            return (await transcribeAudio(base64, seg.mimeType || 'audio/webm')).trim();
+          })
+        ).filter(Boolean);
         const transcript = parts.join('\n\n');
         if (!transcript) {
           throw new Error('No speech detected in recordings.');
@@ -269,18 +304,22 @@ export function RecordingSessionsProvider({ children }: { children: React.ReactN
             try {
               fn(transcript);
             } catch {
-              /* listener error — still offer pending fallback */
-              pendingTranscriptsRef.current.set(patientId, transcript);
+              mergeIntoPendingMap(pendingTranscriptsRef.current, patientId, transcript);
             }
           });
         } else {
-          pendingTranscriptsRef.current.set(patientId, transcript);
+          mergeIntoPendingMap(pendingTranscriptsRef.current, patientId, transcript);
         }
         setTranscriptionNotify((n) => n + 1);
       } catch (e) {
         throw e;
       } finally {
-        setProcessingPatientId(null);
+        finishInFlightRef.current.delete(patientId);
+        setProcessingPatientIds((prev) => {
+          const next = new Set(prev);
+          next.delete(patientId);
+          return next;
+        });
         bump();
       }
     },
@@ -325,7 +364,7 @@ export function RecordingSessionsProvider({ children }: { children: React.ReactN
       const segs = segmentsRef.current[patientId] || [];
       const hasAudio = segs.length > 0;
       let status: SessionPublicStatus = 'idle';
-      if (processingPatientId === patientId) {
+      if (processingPatientIds.has(patientId)) {
         status = 'processing';
       } else if (activeId === patientId && mr && mr.state !== 'inactive') {
         if (mr.state === 'recording') status = 'recording';
@@ -351,7 +390,7 @@ export function RecordingSessionsProvider({ children }: { children: React.ReactN
     }
 
     return out.sort((a, b) => a.patientName.localeCompare(b.patientName));
-  }, [sessionTick, liveTick, processingPatientId]);
+  }, [sessionTick, liveTick, processingPatientIds]);
 
   const mrNow = mediaRecorderRef.current;
   const activeRecordingPatientId = recordingPatientIdRef.current;
@@ -373,7 +412,7 @@ export function RecordingSessionsProvider({ children }: { children: React.ReactN
       discardSession,
       isLiveCapturing,
       isMicHeldPaused,
-      processingPatientId,
+      processingPatientIds,
       transcriptionNotify,
       consumeTranscriptionForPatient,
       subscribeTranscription,
@@ -390,7 +429,7 @@ export function RecordingSessionsProvider({ children }: { children: React.ReactN
       discardSession,
       isLiveCapturing,
       isMicHeldPaused,
-      processingPatientId,
+      processingPatientIds,
       transcriptionNotify,
       consumeTranscriptionForPatient,
       subscribeTranscription,

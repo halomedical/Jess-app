@@ -10,6 +10,7 @@ import type { Patient, UserSettings } from '../../shared/types';
 import { DEFAULT_HALO_TEMPLATE_ID } from '../../shared/haloTemplates';
 import { LogIn, Loader, X, UserPlus, Calendar, Users, AlertTriangle, Trash2 } from 'lucide-react';
 import { SignInBranding } from './components/SignInBranding';
+import { EcgRhythmStrip } from './components/EcgRhythmStrip';
 
 export const App = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -303,6 +304,9 @@ export const App = () => {
                 draggable={false}
               />
               <p className="text-lg font-medium text-slate-400">Select a patient to begin</p>
+              <div className="mt-10 w-full max-w-lg px-2 opacity-90">
+                <EcgRhythmStrip variant="light" />
+              </div>
             </div>
           </div>
         )}

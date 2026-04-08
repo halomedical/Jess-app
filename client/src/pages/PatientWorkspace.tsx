@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { Patient, DriveFile, LabAlert, BreadcrumbItem, ChatMessage, HaloNote } from '../../../shared/types';
-import { HALO_TEMPLATE_OPTIONS, DEFAULT_HALO_TEMPLATE_ID } from '../../../shared/haloTemplates';
-import { detectTemplateIntentFromDictationHead, stripLeadingDictationTemplateCue } from '../../../shared/dictationTemplateIntent';
+import { DEFAULT_HALO_TEMPLATE_ID } from '../../../shared/haloTemplates';
+import { stripLeadingDictationTemplateCue } from '../../../shared/dictationTemplateIntent';
+
+/** Workspace note generation is fixed to Rooms Consult only. */
+const WORKSPACE_TEMPLATE_ID = DEFAULT_HALO_TEMPLATE_ID;
+const WORKSPACE_TEMPLATE_LABEL = 'Rooms Consult';
 import { buildNotePlainText } from '../../../shared/notePlainText';
 import { buildClinicalNoteInputFromDictation, buildNoteTextWithPatientChart } from '../../../shared/patientChartContext';
 import { formatAgeFromIsoDob } from '../../../shared/patientDemographics';
@@ -19,7 +23,7 @@ import {
 import {
   Upload, Calendar, Clock, CheckCircle2, ChevronLeft, Loader2,
   CloudUpload, Pencil, X, Trash2, FolderOpen, MessageCircle,
-  FolderPlus, ChevronRight, Mail, Phone, Hash,
+  FolderPlus, ChevronRight, Mail, Phone, Hash, Menu,
 } from 'lucide-react';
 import { SmartSummary } from '../features/smart-summary/SmartSummary';
 import { LabAlerts } from '../features/lab-alerts/LabAlerts';
@@ -29,6 +33,7 @@ import { FileViewer } from '../components/FileViewer';
 import { FileBrowser } from '../components/FileBrowser';
 import { NoteEditor } from '../components/NoteEditor';
 import { PatientChat } from '../components/PatientChat';
+import { BackgroundTaskChip } from '../components/BackgroundTaskChip';
 import { getErrorMessage, formatDocumentDateDisplay, sanitizeDocxFileBase } from '../utils/formatting';
 import { inAppPatientMirrorKey } from '../utils/inAppDraftMirror';
 
@@ -38,7 +43,10 @@ interface Props {
   onDataChange: () => void;
   onToast: (message: string, type: 'success' | 'error' | 'info') => void;
   userEmail?: string;
+  /** @deprecated Ignored; workspace always uses Rooms Consult for generation */
   templateId?: string;
+  /** Mobile: open slide-over patient list */
+  onOpenMobileNav?: () => void;
 }
 
 const DRAFT_STORAGE_VERSION = 1 as const;
@@ -174,21 +182,17 @@ function shouldApplyRemoteWorkspace(
   return remote.savedAt > local!.savedAt;
 }
 
-export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChange, onToast, userEmail, templateId: propTemplateId }) => {
+export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChange, onToast, userEmail, onOpenMobileNav }) => {
   const scribeSessions = useRecordingSessions();
   const [files, setFiles] = useState<DriveFile[]>([]);
   const [summary, setSummary] = useState<string[]>([]);
   const [alerts, setAlerts] = useState<LabAlert[]>([]);
   const [notes, setNotes] = useState<HaloNote[]>([]);
   const [activeNoteIndex, setActiveNoteIndex] = useState(0);
-  const [templateId, setTemplateId] = useState(propTemplateId || DEFAULT_HALO_TEMPLATE_ID);
+  const templateId = WORKSPACE_TEMPLATE_ID;
   const [pendingTranscript, setPendingTranscript] = useState<string | null>(null);
   /** Mirrors pendingTranscript for merge logic before React commits (scribe backlog + chained dictation). */
   const pendingTranscriptRef = useRef<string | null>(null);
-  const [selectedTemplatesForGenerate, setSelectedTemplatesForGenerate] = useState<string[]>([DEFAULT_HALO_TEMPLATE_ID]);
-  /** After a finished recording, prompt for note type when dictation did not name one (multi-template only). */
-  const [postRecordTemplateModalOpen, setPostRecordTemplateModalOpen] = useState(false);
-  const [postRecordTemplateSelection, setPostRecordTemplateSelection] = useState<string[]>([]);
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(() => readStoredWorkspaceTab(patient.id));
   const [savingNoteIndex, setSavingNoteIndex] = useState<number | null>(null);
@@ -199,6 +203,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [patientInsightLoading, setPatientInsightLoading] = useState(false);
   /** After Drive workspace draft fetch finishes (avoids overwriting cloud with empty before first load). */
   const [driveSyncReady, setDriveSyncReady] = useState(false);
+  /** Non-blocking DOCX save feedback (bottom-right chip). */
+  const [docxTask, setDocxTask] = useState<{ phase: 'idle' | 'running' | 'success' | 'error'; message?: string }>({ phase: 'idle' });
 
   const setWorkspaceTab = useCallback((tab: WorkspaceTab) => {
     setActiveTab(tab);
@@ -297,8 +303,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     pendingTranscript,
     notes,
     activeNoteIndex,
-    selectedTemplatesForGenerate,
-    templateId,
+    selectedTemplatesForGenerate: [WORKSPACE_TEMPLATE_ID],
+    templateId: WORKSPACE_TEMPLATE_ID,
   };
 
   // File viewer state
@@ -563,25 +569,21 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   };
 
   useEffect(() => {
-    setTemplateId(propTemplateId || DEFAULT_HALO_TEMPLATE_ID);
-  }, [propTemplateId]);
-
-  useEffect(() => {
     patientEditorDraftsRef.current[activeDraftPatientIdRef.current] = {
       pendingTranscript,
       notes,
       activeNoteIndex,
-      selectedTemplatesForGenerate,
-      templateId,
+      selectedTemplatesForGenerate: [WORKSPACE_TEMPLATE_ID],
+      templateId: WORKSPACE_TEMPLATE_ID,
     };
     persistDraftToStorage(activeDraftPatientIdRef.current, {
       pendingTranscript,
       notes,
       activeNoteIndex,
-      selectedTemplatesForGenerate,
-      templateId,
+      selectedTemplatesForGenerate: [WORKSPACE_TEMPLATE_ID],
+      templateId: WORKSPACE_TEMPLATE_ID,
     });
-  }, [pendingTranscript, notes, activeNoteIndex, selectedTemplatesForGenerate, templateId, userEmail, persistDraftToStorage]);
+  }, [pendingTranscript, notes, activeNoteIndex, userEmail, persistDraftToStorage]);
 
   // In-app only: flush to localStorage when leaving the tab or closing (React effects can be skipped on hard close)
   useEffect(() => {
@@ -614,33 +616,38 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     }));
   }, []);
 
-  const handleSaveAsDocx = useCallback(async (noteIndex: number) => {
-    const note = notes[noteIndex];
-    const plain = note ? buildNotePlainText(note) : '';
-    if (!plain.trim()) return;
-    const text = buildNoteTextWithPatientChart(patient, plain);
-    setSavingNoteIndex(noteIndex);
-    setStatus(AppStatus.SAVING);
-    try {
-      await saveNoteAsDocx({
-        patientId: patient.id,
-        template_id: note.template_id || templateId,
-        text,
-        fileName: sanitizeDocxFileBase(note.title || 'Note') || undefined,
-      });
-      setNotes(prev => prev.map((n, i) => i !== noteIndex ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }));
-      await loadFolderContents(currentFolderId);
-      onDataChange();
-      onToast('Note saved as DOCX to Patient Notes folder.', 'success');
-    } catch (err) {
-      onToast(getErrorMessage(err), 'error');
-    }
-    setSavingNoteIndex(null);
-    setStatus(AppStatus.IDLE);
-  }, [notes, patient, templateId, currentFolderId, loadFolderContents, onDataChange, onToast]);
+  const handleSaveAsDocx = useCallback(
+    async (noteIndex: number) => {
+      const note = notes[noteIndex];
+      const plain = note ? buildNotePlainText(note) : '';
+      if (!plain.trim()) return;
+      const text = buildNoteTextWithPatientChart(patient, plain);
+      setSavingNoteIndex(noteIndex);
+      setDocxTask({ phase: 'running', message: 'Saving DOCX…' });
+      try {
+        await saveNoteAsDocx({
+          patientId: patient.id,
+          template_id: note.template_id || WORKSPACE_TEMPLATE_ID,
+          text,
+          fileName: sanitizeDocxFileBase(note.title || 'Note') || undefined,
+        });
+        setNotes((prev) =>
+          prev.map((n, i) => (i !== noteIndex ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }))
+        );
+        await loadFolderContents(currentFolderId);
+        onDataChange();
+        setDocxTask({ phase: 'success', message: 'DOCX saved to Patient Notes' });
+      } catch (err) {
+        setDocxTask({ phase: 'error', message: getErrorMessage(err) });
+      } finally {
+        setSavingNoteIndex(null);
+      }
+    },
+    [notes, patient, currentFolderId, loadFolderContents, onDataChange]
+  );
 
   const handleSaveAll = useCallback(async () => {
-    setStatus(AppStatus.SAVING);
+    setDocxTask({ phase: 'running', message: 'Saving all notes…' });
     let saved = 0;
     try {
       for (let i = 0; i < notes.length; i++) {
@@ -650,23 +657,26 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         const text = buildNoteTextWithPatientChart(patient, plain);
         await saveNoteAsDocx({
           patientId: patient.id,
-          template_id: note.template_id || templateId,
+          template_id: note.template_id || WORKSPACE_TEMPLATE_ID,
           text,
           fileName: sanitizeDocxFileBase(note.title || `Note ${i + 1}`) || undefined,
         });
-        setNotes(prev => prev.map((n, j) => j !== i ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }));
+        setNotes((prev) =>
+          prev.map((n, j) => (j !== i ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }))
+        );
         saved++;
       }
       if (saved > 0) {
         await loadFolderContents(currentFolderId);
         onDataChange();
-        onToast(`Saved ${saved} note(s) as DOCX.`, 'success');
+        setDocxTask({ phase: 'success', message: `Saved ${saved} note(s) as DOCX` });
+      } else {
+        setDocxTask({ phase: 'idle' });
       }
     } catch (err) {
-      onToast(getErrorMessage(err), 'error');
+      setDocxTask({ phase: 'error', message: getErrorMessage(err) });
     }
-    setStatus(AppStatus.IDLE);
-  }, [notes, patient, templateId, currentFolderId, loadFolderContents, onDataChange, onToast]);
+  }, [notes, patient, currentFolderId, loadFolderContents, onDataChange]);
 
   const handleEmail = useCallback((noteIndex: number) => {
     if (!userEmail?.trim()) {
@@ -760,7 +770,6 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
 
   useEffect(() => {
     const pid = patient.id;
-    setPostRecordTemplateModalOpen(false);
     const memoryDraft = patientEditorDraftsRef.current[pid];
     const stored = pickStoredDraft(userEmail, pid);
     const draft = stored ? stored.draft : memoryDraft;
@@ -770,10 +779,6 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     pendingTranscriptRef.current = initialPending;
     setNotes(draft?.notes ?? []);
     setActiveNoteIndex(draft ? Math.min(draft.activeNoteIndex, Math.max((draft.notes?.length ?? 1) - 1, 0)) : 0);
-    setSelectedTemplatesForGenerate(
-      draft?.selectedTemplatesForGenerate?.length ? draft.selectedTemplatesForGenerate : [DEFAULT_HALO_TEMPLATE_ID]
-    );
-    setTemplateId(draft?.templateId ?? (propTemplateId || DEFAULT_HALO_TEMPLATE_ID));
 
     const applyTranscript = (text: string) => {
       if (!text.trim()) {
@@ -790,23 +795,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       }
       const merged = !prev ? trimmedText : `${prev}\n\n${trimmedText}`;
 
-      const detected = !prev
-        ? detectTemplateIntentFromDictationHead(merged)
-        : detectTemplateIntentFromDictationHead(trimmedText);
-
       pendingTranscriptRef.current = merged;
       setPendingTranscript(merged);
-
-      if (detected) {
-        const label = HALO_TEMPLATE_OPTIONS.find((t) => t.id === detected)?.name ?? detected;
-        setSelectedTemplatesForGenerate([detected]);
-        setPostRecordTemplateModalOpen(false);
-        onToast(`Using ${label} from your dictation.`, 'info');
-      } else if (!prev && HALO_TEMPLATE_OPTIONS.length > 1) {
-        setPostRecordTemplateSelection([]);
-        setPostRecordTemplateModalOpen(true);
-      }
-
       setWorkspaceTab('notes');
     };
 
@@ -814,7 +804,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     const backlog = scribeSessions.consumeTranscriptionForPatient(pid);
     if (backlog != null) applyTranscript(backlog);
     return unsub;
-  }, [patient.id, userEmail, propTemplateId, scribeSessions.subscribeTranscription, scribeSessions.consumeTranscriptionForPatient, onToast, setWorkspaceTab]);
+  }, [patient.id, userEmail, scribeSessions.subscribeTranscription, scribeSessions.consumeTranscriptionForPatient, onToast, setWorkspaceTab]);
 
   // Load clinical workspace from Google Drive (Patient Notes / __Halo_clinical_workspace.json) — source of truth across devices
   useEffect(() => {
@@ -851,13 +841,11 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             Math.max((parsed.draft.notes?.length ?? 1) - 1, 0)
           )
         );
-        setSelectedTemplatesForGenerate(
-          parsed.draft.selectedTemplatesForGenerate?.length
-            ? parsed.draft.selectedTemplatesForGenerate
-            : [DEFAULT_HALO_TEMPLATE_ID]
-        );
-        setTemplateId(parsed.draft.templateId || propTemplateId || DEFAULT_HALO_TEMPLATE_ID);
-        persistDraftToStorage(pid, parsed.draft);
+        persistDraftToStorage(pid, {
+          ...parsed.draft,
+          selectedTemplatesForGenerate: [WORKSPACE_TEMPLATE_ID],
+          templateId: WORKSPACE_TEMPLATE_ID,
+        });
       } catch {
         // offline or API error — keep local draft only
       } finally {
@@ -867,7 +855,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     return () => {
       cancelled = true;
     };
-  }, [patient.id, userEmail, propTemplateId, persistDraftToStorage]);
+  }, [patient.id, userEmail, persistDraftToStorage]);
 
   // Debounced sync to Drive (Patient Notes folder) — never upload an empty workspace (would wipe cloud backup)
   useEffect(() => {
@@ -877,8 +865,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       pendingTranscript,
       notes,
       activeNoteIndex,
-      selectedTemplatesForGenerate,
-      templateId,
+      selectedTemplatesForGenerate: [WORKSPACE_TEMPLATE_ID],
+      templateId: WORKSPACE_TEMPLATE_ID,
     };
     if (!draftHasContent(draftPayload)) return;
     const t = window.setTimeout(() => {
@@ -895,77 +883,45 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     pendingTranscript,
     notes,
     activeNoteIndex,
-    selectedTemplatesForGenerate,
-    templateId,
   ]);
 
-  const toggleTemplateForGenerate = useCallback((id: string) => {
-    setSelectedTemplatesForGenerate(prev =>
-      prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]
-    );
-  }, []);
-
-  const selectAllTemplatesForGenerate = useCallback(() => {
-    setSelectedTemplatesForGenerate(HALO_TEMPLATE_OPTIONS.map(t => t.id));
-  }, []);
-
-  const togglePostRecordModalTemplate = useCallback((id: string) => {
-    setPostRecordTemplateSelection((sel) =>
-      sel.includes(id) ? sel.filter((t) => t !== id) : [...sel, id]
-    );
-  }, []);
-
-  const handleGenerateFromTemplates = useCallback(async (templateIdsOverride?: string[]) => {
+  const handleGenerateFromTemplates = useCallback(async () => {
     const rawDictation = pendingTranscript?.trim() ?? '';
-    const templateIds = templateIdsOverride ?? selectedTemplatesForGenerate;
     if (!rawDictation) {
       onToast('No dictation to generate from.', 'info');
       return;
     }
-    if (templateIds.length === 0) {
-      onToast('Select at least one template.', 'info');
-      return;
-    }
     setStatus(AppStatus.LOADING);
     const dictationForModel = stripLeadingDictationTemplateCue(rawDictation);
-    const templateNames = Object.fromEntries(HALO_TEMPLATE_OPTIONS.map(t => [t.id, t.name]));
     const inputText = buildClinicalNoteInputFromDictation(patient, dictationForModel);
     try {
-      const results = await Promise.all(
-        templateIds.map(id => generateNotePreview({ template_id: id, text: inputText }))
-      );
-      const combined: HaloNote[] = results.map((res, i) => {
-        const tid = templateIds[i];
-        const name = templateNames[tid] ?? tid;
-        const first = res.notes?.[0];
-        const content = first?.content?.trim()
-          ? first.content
-          : dictationForModel;
-        const createdAt = new Date().toISOString();
-        return {
-          noteId: first?.noteId ?? `note-${tid}-${Date.now()}`,
-          title: `${name} ${formatDocumentDateDisplay()}`,
-          content,
-          template_id: tid,
-          createdAt,
-          lastSavedAt: createdAt,
-          dirty: false,
-          ...(first?.fields && first.fields.length > 0 ? { fields: first.fields } : {}),
-        };
-      });
-      setNotes(prev => {
+      const res = await generateNotePreview({ template_id: WORKSPACE_TEMPLATE_ID, text: inputText });
+      const first = res.notes?.[0];
+      const content = first?.content?.trim() ? first.content : dictationForModel;
+      const createdAt = new Date().toISOString();
+      const note: HaloNote = {
+        noteId: first?.noteId ?? `note-${WORKSPACE_TEMPLATE_ID}-${Date.now()}`,
+        title: `${WORKSPACE_TEMPLATE_LABEL} ${formatDocumentDateDisplay()}`,
+        content,
+        template_id: WORKSPACE_TEMPLATE_ID,
+        createdAt,
+        lastSavedAt: createdAt,
+        dirty: false,
+        ...(first?.fields && first.fields.length > 0 ? { fields: first.fields } : {}),
+      };
+      setNotes((prev) => {
         const newIdx = prev.length;
         setActiveNoteIndex(newIdx);
-        return [...prev, ...combined];
+        return [...prev, note];
       });
       setPendingTranscript(null);
       pendingTranscriptRef.current = null;
-      onToast(`Generated ${combined.length} note(s). You can edit and save as DOCX.`, 'success');
+      onToast('Note generated. You can edit and save as DOCX.', 'success');
     } catch (err) {
       onToast(getErrorMessage(err), 'error');
     }
     setStatus(AppStatus.IDLE);
-  }, [patient, pendingTranscript, selectedTemplatesForGenerate, onToast]);
+  }, [patient, pendingTranscript, onToast]);
 
   // Autosave: every 30s mark dirty notes as saved (client-side only; no DOCX generation)
   useEffect(() => {
@@ -1174,19 +1130,31 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   return (
     <div className="flex flex-col h-full min-h-0 bg-white relative w-full max-w-[100vw]">
       {/* Header */}
-      <div className="border-b border-slate-200 px-4 md:px-8 py-3 md:py-4 safe-pad-t flex flex-col md:flex-row md:justify-between md:items-start bg-white shadow-sm z-10 gap-3 md:gap-4 shrink-0">
-        <div className="flex items-start gap-2 md:gap-3 min-w-0 flex-1">
-          <button
-            type="button"
-            onClick={onBack}
-            className="md:hidden shrink-0 mt-0.5 flex items-center gap-1 min-h-[44px] min-w-[44px] px-2 -ml-1 text-teal-700 hover:text-teal-900 hover:bg-teal-50 rounded-xl border border-transparent hover:border-teal-200 transition-colors"
-          >
-            <ChevronLeft className="w-5 h-5 shrink-0" />
-            <span className="text-xs font-bold uppercase tracking-wide">Patients</span>
-          </button>
+      <div className="border-b border-slate-200 px-3 md:px-8 py-2 md:py-4 safe-pad-t flex flex-col md:flex-row md:justify-between md:items-start bg-white shadow-sm z-10 gap-2 md:gap-4 shrink-0">
+        <div className="flex items-start gap-1.5 md:gap-3 min-w-0 flex-1">
+          <div className="flex shrink-0 items-start gap-0.5 md:hidden">
+            {onOpenMobileNav ? (
+              <button
+                type="button"
+                onClick={onOpenMobileNav}
+                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-transparent text-teal-800 hover:bg-teal-50 hover:border-teal-200 transition-colors"
+                aria-label="Open patient menu"
+              >
+                <Menu className="h-5 w-5 shrink-0" strokeWidth={2.25} />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={onBack}
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-transparent text-teal-700 hover:text-teal-900 hover:bg-teal-50 hover:border-teal-200 transition-colors"
+              aria-label="Leave workspace"
+            >
+              <ChevronLeft className="h-5 w-5 shrink-0" />
+            </button>
+          </div>
           <div className="group relative min-w-0 flex-1">
             <div className="flex items-start gap-2 min-w-0">
-              <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-slate-800 tracking-tight leading-tight break-words min-w-0 flex-1">{patient.name}</h1>
+              <h1 className="text-lg sm:text-xl md:text-3xl font-bold text-slate-800 tracking-tight leading-tight break-words min-w-0 flex-1">{patient.name}</h1>
               <button
                 type="button"
                 onClick={startEditPatient}
@@ -1196,40 +1164,42 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                 <Pencil size={18} />
               </button>
             </div>
-            <div className="flex flex-nowrap md:flex-wrap items-center gap-2 text-sm text-slate-500 mt-2 font-medium overflow-x-auto pb-1 -mx-1 px-1 md:overflow-visible md:mx-0 md:px-0 [-webkit-overflow-scrolling:touch]">
+            <div className="mt-1.5 grid grid-cols-2 gap-x-2 gap-y-1.5 sm:grid-cols-3 md:flex md:flex-wrap md:items-center text-[11px] text-slate-600 font-medium">
               {patient.folderNumber?.trim() ? (
-                <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap shrink-0">
-                  <Hash className="w-3.5 h-3.5 shrink-0" /> Folder no. {patient.folderNumber.trim()}
+                <span className="flex min-w-0 items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5">
+                  <Hash className="h-3 w-3 shrink-0 text-slate-500" /> <span className="truncate">#{patient.folderNumber.trim()}</span>
                 </span>
               ) : null}
-              <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap shrink-0">
-                <Calendar className="w-3.5 h-3.5 shrink-0" /> DOB {patient.dob}
+              <span className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 min-w-0">
+                <Calendar className="h-3 w-3 shrink-0 text-slate-500" /> <span className="truncate">{patient.dob}</span>
               </span>
-              <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap shrink-0">
-                Age: {patientAgeDisplay}
+              <span className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5">
+                Age {patientAgeDisplay}
               </span>
-              <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap shrink-0">Sex: {patient.sex || 'Unknown'}</span>
+              <span className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5">{patient.sex || '—'}</span>
               {patient.contactNumber?.trim() ? (
-                <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap shrink-0">
-                  <Phone className="w-3.5 h-3.5 shrink-0" /> {patient.contactNumber.trim()}
+                <span className="flex min-w-0 items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 col-span-2 sm:col-span-1">
+                  <Phone className="h-3 w-3 shrink-0 text-slate-500" /> <span className="truncate">{patient.contactNumber.trim()}</span>
                 </span>
               ) : null}
               {patient.referringDoctor?.trim() ? (
-                <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 max-w-[min(200px,55vw)] min-w-0 shrink-0">
+                <span className="col-span-2 flex min-w-0 items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 sm:col-span-2 md:col-auto">
                   <span className="truncate">Ref: {patient.referringDoctor.trim()}</span>
                 </span>
               ) : null}
               {visitTypeDisplay ? (
-                <span className="flex items-center gap-1.5 bg-teal-100 text-teal-900 px-2 py-1 rounded whitespace-nowrap text-xs font-bold shrink-0">
-                  {visitTypeDisplay}
+                <span className="inline-flex items-center rounded bg-teal-100 px-1.5 py-0.5 font-bold text-teal-900">
+                  {visitTypeDisplay === 'New patient' ? 'New' : 'F/U'}
                 </span>
               ) : null}
               {patient.visitDate?.trim() ? (
-                <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap shrink-0">
-                  <Calendar className="w-3.5 h-3.5 shrink-0" /> Visit {patient.visitDate.trim()}
+                <span className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 min-w-0">
+                  <Calendar className="h-3 w-3 shrink-0 text-slate-500" /> <span className="truncate">{patient.visitDate.trim()}</span>
                 </span>
               ) : null}
-              <span className="flex items-center gap-1.5 bg-slate-100 px-2 py-1 rounded text-slate-600 whitespace-nowrap shrink-0"><Clock className="w-3.5 h-3.5 shrink-0" /> Last: {patient.lastVisit}</span>
+              <span className="flex min-w-0 items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 col-span-2 sm:col-span-3 md:max-w-none">
+                <Clock className="h-3 w-3 shrink-0 text-slate-500" /> <span className="truncate">Last: {patient.lastVisit}</span>
+              </span>
             </div>
           </div>
         </div>
@@ -1239,9 +1209,18 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           patientName={patient.name}
           onError={(msg) => onToast(msg, 'error')}
           onTranscriptionQueued={() => onToast('Transcription ready in Editor & Scribe.', 'success')}
+          onUploadClick={openUploadPicker}
+          uploadDisabled={status === AppStatus.UPLOADING}
         >
           {(recordingToolbar) => (
             <div className="flex w-full flex-col items-stretch gap-2 md:w-auto md:items-end">
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                onChange={handleFileUpload}
+                accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+              />
               {status === AppStatus.UPLOADING ? (
                 <div className="w-full max-w-xs md:ml-auto">
                   <div className="mb-1 flex justify-between text-xs font-semibold text-teal-700">
@@ -1253,22 +1232,17 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                   </div>
                 </div>
               ) : (
-                <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-                  {recordingToolbar}
-                  <button
-                    type="button"
-                    onClick={openUploadPicker}
-                    className="flex min-h-[44px] w-full shrink-0 items-center justify-center gap-2 rounded-lg bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-teal-600/20 transition-all hover:bg-teal-700 sm:w-auto"
-                  >
-                    <Upload className="h-4 w-4" /> Upload file
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    className="hidden"
-                    onChange={handleFileUpload}
-                    accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
-                  />
+                <div className="hidden w-full flex-col gap-2 md:flex md:w-auto md:items-end">
+                  <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+                    {recordingToolbar}
+                    <button
+                      type="button"
+                      onClick={openUploadPicker}
+                      className="flex min-h-[44px] w-full shrink-0 items-center justify-center gap-2 rounded-lg bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-teal-600/20 transition-all hover:bg-teal-700 sm:w-auto"
+                    >
+                      <Upload className="h-4 w-4" /> Upload file
+                    </button>
+                  </div>
                 </div>
               )}
               {uploadMessage && status !== AppStatus.UPLOADING && (
@@ -1281,14 +1255,15 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         </PatientWorkspaceRecording>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain bg-slate-50/50 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:p-8 md:pb-8">
-        <div className="max-w-6xl mx-auto">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-50/50">
+        <div className="shrink-0 px-3 pt-3 md:px-8 md:pt-6">
+          <div className="mx-auto max-w-6xl">
           {/* Patient summary — generated only on demand */}
-          <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm md:mb-5 md:p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
+              <div className="min-w-0">
                 <h2 className="text-sm font-bold text-slate-800">Patient summary</h2>
-                <p className="text-[11px] text-slate-500">Runs HALO on files in this patient&apos;s folder. Not generated until you tap Generate.</p>
+                <p className="text-[11px] text-slate-500 line-clamp-2 md:line-clamp-none">HALO uses files in this folder. Tap Generate when you want a summary.</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {hasSavedPatientSummary && (
@@ -1321,12 +1296,15 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               </div>
             )}
           </div>
+          </div>
+        </div>
 
-          <div className="mb-4 flex w-full border-b border-slate-200">
+        <div className="shrink-0 border-b border-slate-200 px-3 md:px-8">
+          <div className="mx-auto max-w-6xl flex w-full">
             <button
               type="button"
               onClick={() => setWorkspaceTab('overview')}
-              className={`min-h-[40px] flex-1 border-b-2 px-1 py-2 text-center text-[10px] font-bold uppercase leading-tight tracking-wide transition-colors sm:min-h-0 sm:px-2 sm:text-xs md:text-sm ${
+              className={`min-h-[36px] flex-1 border-b-2 px-0.5 py-1.5 text-center text-[10px] font-bold uppercase leading-tight tracking-wide transition-colors sm:px-2 sm:text-xs ${
                 activeTab === 'overview'
                   ? 'border-teal-600 text-teal-800'
                   : 'border-transparent text-slate-400 hover:text-slate-600'
@@ -1337,7 +1315,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             <button
               type="button"
               onClick={() => setWorkspaceTab('notes')}
-              className={`min-h-[40px] flex-1 border-b-2 px-1 py-2 text-center text-[10px] font-bold uppercase leading-tight tracking-wide transition-colors sm:min-h-0 sm:px-2 sm:text-xs md:text-sm ${
+              className={`min-h-[36px] flex-1 border-b-2 px-0.5 py-1.5 text-center text-[10px] font-bold uppercase leading-tight tracking-wide transition-colors sm:px-2 sm:text-xs ${
                 activeTab === 'notes'
                   ? 'border-teal-600 text-teal-800'
                   : 'border-transparent text-slate-400 hover:text-slate-600'
@@ -1348,7 +1326,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             <button
               type="button"
               onClick={() => setWorkspaceTab('chat')}
-              className={`flex min-h-[40px] flex-1 items-center justify-center gap-0.5 border-b-2 px-1 py-2 text-center text-[10px] font-bold uppercase leading-tight tracking-wide transition-colors sm:min-h-0 sm:gap-1 sm:px-2 sm:text-xs md:text-sm ${
+              className={`flex min-h-[36px] flex-1 items-center justify-center gap-0.5 border-b-2 px-0.5 py-1.5 text-center text-[10px] font-bold uppercase leading-tight tracking-wide transition-colors sm:gap-1 sm:px-2 sm:text-xs ${
                 activeTab === 'chat'
                   ? 'border-teal-600 text-teal-800'
                   : 'border-transparent text-slate-400 hover:text-slate-600'
@@ -1358,7 +1336,18 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               <span className="truncate">HALO</span>
             </button>
           </div>
+        </div>
 
+        <div
+          className={`min-h-0 flex-1 overflow-x-hidden overscroll-contain px-3 md:px-8 ${
+            activeTab === 'overview' ? 'overflow-y-auto' : 'overflow-hidden'
+          } pb-[max(5.75rem,env(safe-area-inset-bottom)+4.75rem)] md:overflow-y-auto md:pb-8`}
+        >
+          <div
+            className={`mx-auto max-w-6xl ${
+              activeTab === 'notes' || activeTab === 'chat' ? 'flex h-full min-h-0 flex-col' : ''
+            }`}
+          >
           {activeTab === 'overview' ? (
             <FileBrowser
               files={filesForBrowser}
@@ -1383,67 +1372,26 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             />
           ) : activeTab === 'notes' ? (
             pendingTranscript ? (
-              <div className="min-h-[240px] h-[min(600px,calc(100dvh-12rem))] max-h-[85dvh] flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="p-6 border-b border-slate-200">
-                  <h3 className="text-sm font-bold text-slate-800 mb-1">Generate clinical note</h3>
-                  <p className="text-xs text-slate-500 mb-4">
-                    {HALO_TEMPLATE_OPTIONS.length > 1
-                      ? 'Select which note types to generate from your dictation. Each will appear as a separate tab for editing.'
-                      : 'Your dictation will be turned into a Clinical Note (Jess) for this patient.'}
-                  </p>
-                  {HALO_TEMPLATE_OPTIONS.length > 1 ? (
-                    <div className="flex flex-wrap gap-2 mb-4">
-                      {HALO_TEMPLATE_OPTIONS.map((t) => {
-                        const selected = selectedTemplatesForGenerate.includes(t.id);
-                        return (
-                          <button
-                            key={t.id}
-                            type="button"
-                            onClick={() => toggleTemplateForGenerate(t.id)}
-                            className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all border shadow-sm whitespace-nowrap ${
-                              selected
-                                ? 'bg-teal-50 border-teal-300 text-teal-800 ring-2 ring-teal-200'
-                                : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50'
-                            }`}
-                          >
-                            {t.name}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-slate-700 mb-4 font-medium">{HALO_TEMPLATE_OPTIONS[0]?.name ?? 'Clinical note'}</p>
-                  )}
-                  <div className="flex flex-wrap items-center gap-2">
-                    {HALO_TEMPLATE_OPTIONS.length > 1 ? (
-                      <button
-                        type="button"
-                        onClick={selectAllTemplatesForGenerate}
-                        className="px-4 py-2 rounded-xl text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition shadow-sm"
-                      >
-                        Select all
-                      </button>
-                    ) : null}
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200/80 bg-white md:my-0">
+                <div className="shrink-0 border-b border-slate-100 px-3 py-2.5 sm:px-4">
+                  <h3 className="text-xs font-bold text-slate-800">Generate {WORKSPACE_TEMPLATE_LABEL}</h3>
+                  <p className="mt-0.5 text-[11px] text-slate-500">Dictation becomes a Rooms Consult note.</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       onClick={() => void handleGenerateFromTemplates()}
-                      disabled={selectedTemplatesForGenerate.length === 0 || status === AppStatus.LOADING}
-                      className="px-4 py-2 rounded-xl text-sm font-bold bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm border border-teal-600"
+                      disabled={status === AppStatus.LOADING}
+                      className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-teal-700 disabled:opacity-50"
                     >
-                      {status === AppStatus.LOADING
-                        ? 'Generating…'
-                        : HALO_TEMPLATE_OPTIONS.length > 1
-                          ? `Generate ${selectedTemplatesForGenerate.length} note(s)`
-                          : 'Generate note'}
+                      {status === AppStatus.LOADING ? 'Generating…' : 'Generate note'}
                     </button>
                     <button
                       type="button"
                       onClick={() => {
                         setPendingTranscript(null);
                         pendingTranscriptRef.current = null;
-                        setPostRecordTemplateModalOpen(false);
                       }}
-                      className="px-4 py-2 rounded-xl text-sm font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition shadow-sm"
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600"
                     >
                       Cancel
                     </button>
@@ -1463,18 +1411,17 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                         setEmailNoteIndex(0);
                         setShowEmailNoteModal(true);
                       }}
-                      className="px-4 py-2 rounded-xl text-sm font-semibold bg-slate-600 text-white border border-slate-600 hover:bg-slate-700 transition shadow-sm flex items-center gap-2"
+                      className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+                      title="Email dictation"
+                      aria-label="Email dictation"
                     >
-                      <Mail className="w-4 h-4 shrink-0" aria-hidden />
-                      Email dictation
+                      <Mail className="h-4 w-4 shrink-0" aria-hidden />
                     </button>
                   </div>
                 </div>
-                <div className="flex-1 p-4 overflow-auto bg-slate-50">
-                  <div className="mb-4 rounded-xl border border-teal-200 bg-teal-50/90 px-4 py-3 text-sm text-slate-800 shadow-sm">
-                    <p className="text-[10px] font-bold text-teal-800 uppercase tracking-wider mb-2">
-                      Patient on chart (sent with generate &amp; email)
-                    </p>
+                <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/80 p-3">
+                  <div className="mb-3 rounded-lg border border-teal-100 bg-teal-50/80 px-3 py-2 text-[11px] text-slate-800">
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-teal-800">Chart (included in note &amp; email)</p>
                     <p><span className="font-semibold text-slate-700">Name:</span> {patient.name}</p>
                     <p><span className="font-semibold text-slate-700">DOB:</span> {patient.dob}</p>
                     <p><span className="font-semibold text-slate-700">Age:</span> {patientAgeDisplay}</p>
@@ -1494,18 +1441,15 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                     {patient.visitDate?.trim() ? (
                       <p><span className="font-semibold text-slate-700">Visit date:</span> {patient.visitDate.trim()}</p>
                     ) : null}
-                    <p className="text-xs text-teal-900/80 mt-2 leading-snug">
-                      These details are merged into generated notes, DOCX, and emails so templates stay aligned with the chart.
-                    </p>
                   </div>
-                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Transcript preview</p>
-                  <p className="text-sm text-slate-600 whitespace-pre-wrap">{pendingTranscript}</p>
+                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Transcript</p>
+                  <p className="text-xs text-slate-600 whitespace-pre-wrap">{pendingTranscript}</p>
                 </div>
               </div>
             ) : notes.length === 0 ? (
-              <div className="min-h-[240px] h-[min(600px,calc(100dvh-12rem))] max-h-[85dvh] flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="flex-1 flex items-center justify-center text-slate-400 px-4">
-                  <p className="text-sm">No notes yet. Use the Scribe to dictate, then choose templates to generate notes.</p>
+              <div className="flex min-h-[min(280px,40dvh)] flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm md:min-h-[320px]">
+                <div className="flex flex-1 items-center justify-center px-4 text-slate-400">
+                  <p className="text-center text-sm">No notes yet. Dictate from the workspace, then generate a Rooms Consult note.</p>
                 </div>
               </div>
             ) : (
@@ -1515,16 +1459,15 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                 onActiveIndexChange={setActiveNoteIndex}
                 onNoteChange={handleNoteChange}
                 status={status}
-                templateId={templateId}
-                templateOptions={HALO_TEMPLATE_OPTIONS}
-                onTemplateChange={setTemplateId}
                 onSaveAsDocx={handleSaveAsDocx}
                 onSaveAll={handleSaveAll}
                 onEmail={handleEmail}
                 savingNoteIndex={savingNoteIndex}
+                docxExportPhase={docxTask.phase}
               />
             )
           ) : (
+            <div className="flex min-h-0 flex-1 flex-col py-2 md:py-3">
             <PatientChat
               patientName={patient.name}
               chatMessages={chatMessages}
@@ -1534,78 +1477,11 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               chatLongWait={chatLongWait}
               onSendChat={handleSendChat}
             />
+            </div>
           )}
-        </div>
-      </div>
-
-      {/* After recording: pick note type when dictation did not name one */}
-      {postRecordTemplateModalOpen && HALO_TEMPLATE_OPTIONS.length > 1 ? (
-        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4 safe-pad-b">
-          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl p-6 w-full max-w-md sm:m-4 border border-slate-200">
-            <h3 className="text-base font-bold text-slate-900 mb-1">Which note type?</h3>
-            <p className="text-xs text-slate-500 mb-4">
-              Your dictation did not say echo report, rooms consult, or report. Choose one or more — you can also say that at the start next time to skip this step.
-            </p>
-            <div className="flex flex-wrap gap-2 mb-5">
-              {HALO_TEMPLATE_OPTIONS.map((t) => {
-                const selected = postRecordTemplateSelection.includes(t.id);
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => togglePostRecordModalTemplate(t.id)}
-                    className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all border shadow-sm whitespace-nowrap ${
-                      selected
-                        ? 'bg-teal-50 border-teal-300 text-teal-800 ring-2 ring-teal-200'
-                        : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50'
-                    }`}
-                  >
-                    {t.name}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
-              <button
-                type="button"
-                className="px-4 py-2.5 rounded-xl text-sm font-medium border border-slate-200 text-slate-600 hover:bg-slate-50"
-                onClick={() => {
-                  setPostRecordTemplateModalOpen(false);
-                  setSelectedTemplatesForGenerate([DEFAULT_HALO_TEMPLATE_ID]);
-                }}
-              >
-                Use default ({HALO_TEMPLATE_OPTIONS.find((t) => t.id === DEFAULT_HALO_TEMPLATE_ID)?.name ?? 'Rooms Consult'})
-              </button>
-              <button
-                type="button"
-                className="px-4 py-2.5 rounded-xl text-sm font-semibold bg-white border border-slate-200 text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                disabled={postRecordTemplateSelection.length === 0 || status === AppStatus.LOADING}
-                onClick={() => {
-                  if (postRecordTemplateSelection.length === 0) return;
-                  setSelectedTemplatesForGenerate(postRecordTemplateSelection);
-                  setPostRecordTemplateModalOpen(false);
-                }}
-              >
-                Continue to transcript
-              </button>
-              <button
-                type="button"
-                className="px-4 py-2.5 rounded-xl text-sm font-bold bg-teal-600 text-white border border-teal-600 hover:bg-teal-700 disabled:opacity-50"
-                disabled={postRecordTemplateSelection.length === 0 || status === AppStatus.LOADING}
-                onClick={() => {
-                  if (postRecordTemplateSelection.length === 0) return;
-                  const ids = [...postRecordTemplateSelection];
-                  setSelectedTemplatesForGenerate(ids);
-                  setPostRecordTemplateModalOpen(false);
-                  void handleGenerateFromTemplates(ids);
-                }}
-              >
-                Generate now
-              </button>
-            </div>
           </div>
         </div>
-      ) : null}
+      </div>
 
       {/* EDIT PATIENT MODAL */}
       {editingPatient && (
@@ -1721,17 +1597,6 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           </div>
           <p className="text-teal-900 font-bold text-lg mt-6">HALO is analyzing...</p>
           <p className="text-slate-500 text-sm mt-1">Extracting clinical concepts &amp; tagging files</p>
-        </div>
-      )}
-
-      {status === AppStatus.SAVING && (
-        <div className="fixed inset-0 bg-white/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center">
-          <div className="relative">
-            <div className="w-16 h-16 border-4 border-slate-200 rounded-full"></div>
-            <div className="absolute top-0 left-0 w-16 h-16 border-4 border-teal-500 rounded-full border-t-transparent animate-spin"></div>
-          </div>
-          <p className="text-teal-900 font-bold text-lg mt-6">Saving note as DOCX...</p>
-          <p className="text-slate-500 text-sm mt-1">Uploading to Patient Notes folder</p>
         </div>
       )}
 
@@ -1938,6 +1803,12 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           </div>
         </div>
       )}
+
+      <BackgroundTaskChip
+        phase={docxTask.phase}
+        message={docxTask.message}
+        onDismiss={() => setDocxTask({ phase: 'idle' })}
+      />
     </div>
   );
 };

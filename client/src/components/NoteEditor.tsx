@@ -4,6 +4,7 @@ import type { HaloNote } from '../../../shared/types';
 import { AppStatus } from '../../../shared/types';
 import { buildNotePlainText } from '../../../shared/notePlainText';
 import { formatDocumentDateDisplay } from '../utils/formatting';
+import type { BackgroundTaskPhase } from './BackgroundTaskChip';
 
 function tabDateLabelForNote(note: HaloNote): string {
   const iso = note.createdAt || note.lastSavedAt;
@@ -19,12 +20,14 @@ function tabDateLabelForNote(note: HaloNote): string {
 /** Parse note content into labeled fields (e.g. "Subjective:", "Plan:" blocks) for preview */
 function parseNoteFields(content: string): Array<{ label: string; body: string }> {
   if (!content.trim()) return [];
-  const blocks = content.split(/\n\s*\n/).map(b => b.trim()).filter(Boolean);
-  return blocks.map(block => {
+  const blocks = content.split(/\n\s*\n/).map((b) => b.trim()).filter(Boolean);
+  return blocks.map((block) => {
     const firstLineEnd = block.indexOf('\n');
     const firstLine = firstLineEnd === -1 ? block : block.slice(0, firstLineEnd);
     const rest = firstLineEnd === -1 ? '' : block.slice(firstLineEnd + 1).trim();
-    const looksLikeHeader = firstLine.length <= 60 && (firstLine.endsWith(':') || /^[A-Z][a-z]+(\s+[A-Za-z]+)*:?\s*$/.test(firstLine));
+    const looksLikeHeader =
+      firstLine.length <= 60 &&
+      (firstLine.endsWith(':') || /^[A-Z][a-z]+(\s+[A-Za-z]+)*:?\s*$/.test(firstLine));
     if (looksLikeHeader && (rest || firstLine.endsWith(':'))) {
       const label = firstLine.endsWith(':') ? firstLine.slice(0, -1).trim() : firstLine.trim();
       return { label, body: rest || '' };
@@ -39,13 +42,12 @@ interface NoteEditorProps {
   onActiveIndexChange: (index: number) => void;
   onNoteChange: (noteIndex: number, updates: { title?: string; content?: string }) => void;
   status: AppStatus;
-  templateId: string;
-  templateOptions: Array<{ id: string; name: string }>;
-  onTemplateChange?: (templateId: string) => void;
   onSaveAsDocx: (noteIndex: number) => void;
   onSaveAll: () => void;
   onEmail: (noteIndex: number) => void;
   savingNoteIndex: number | null;
+  /** Background DOCX job — keeps editor usable while saving */
+  docxExportPhase?: BackgroundTaskPhase;
 }
 
 export const NoteEditor: React.FC<NoteEditorProps> = ({
@@ -54,73 +56,63 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   onActiveIndexChange,
   onNoteChange,
   status,
-  templateId,
-  templateOptions,
-  onTemplateChange,
   onSaveAsDocx,
   onSaveAll,
   onEmail,
   savingNoteIndex,
+  docxExportPhase = 'idle',
 }) => {
   const activeNote = notes[activeIndex];
-  const busy = status === AppStatus.FILING || status === AppStatus.SAVING;
+  const busy = status === AppStatus.FILING;
+  const docxBusy = docxExportPhase === 'running';
   const notePlain = useMemo(() => (activeNote ? buildNotePlainText(activeNote) : ''), [activeNote]);
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('preview');
-  // Use actual fields from generate_note when present; otherwise parse content into fields
   const fields = useMemo(() => {
     if (activeNote?.fields && activeNote.fields.length > 0) return activeNote.fields;
     return parseNoteFields(activeNote?.content ?? '');
   }, [activeNote?.content, activeNote?.fields]);
 
-  if (notes.length === 0) {
-    return (
-      <div className="flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden min-h-0 h-[min(600px,calc(100dvh-13rem))] max-h-[min(600px,88dvh)]">
-        <div className="flex-1 flex items-center justify-center text-slate-400">
-          <p className="text-sm">No notes yet. Use the Scribe to dictate, then notes will appear here.</p>
-        </div>
+  const emptyShell = (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200/80 bg-white">
+      <div className="flex flex-1 items-center justify-center px-4 text-slate-400">
+        <p className="text-center text-xs">No notes yet. Dictate from the workspace, then generate.</p>
       </div>
-    );
+    </div>
+  );
+
+  if (notes.length === 0) {
+    return emptyShell;
   }
 
   return (
-    <div className="flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden min-h-0 h-[min(600px,calc(100dvh-13rem))] max-h-[min(600px,88dvh)]">
-      <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Clinical Note Editor</span>
-          {templateOptions.length > 0 && onTemplateChange && (
-            <select
-              value={templateId}
-              onChange={(e) => onTemplateChange(e.target.value)}
-              className="text-xs font-medium border border-slate-200 rounded-lg px-2 py-1 bg-white text-slate-700 shadow-sm"
-            >
-              {templateOptions.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
-          )}
-          <div className="flex rounded-lg border border-slate-200 bg-white shadow-sm p-0.5">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200/80 bg-white">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-2 py-1.5 sm:px-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <span className="hidden text-[10px] font-bold uppercase tracking-wide text-slate-400 sm:inline">Note</span>
+          <div className="inline-flex rounded-md border border-slate-200 bg-slate-50 p-0.5">
             <button
               type="button"
               onClick={() => setViewMode('preview')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                viewMode === 'preview' ? 'bg-teal-100 text-teal-800' : 'text-slate-600 hover:bg-slate-50'
+              className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-semibold transition-colors ${
+                viewMode === 'preview' ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-600 hover:text-slate-800'
               }`}
             >
-              <Eye size={14} /> Preview
+              <Eye className="h-3.5 w-3.5" strokeWidth={2.25} />
+              Preview
             </button>
             <button
               type="button"
               onClick={() => setViewMode('edit')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                viewMode === 'edit' ? 'bg-teal-100 text-teal-800' : 'text-slate-600 hover:bg-slate-50'
+              className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-semibold transition-colors ${
+                viewMode === 'edit' ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-600 hover:text-slate-800'
               }`}
             >
-              <Pencil size={14} /> Edit
+              <Pencil className="h-3.5 w-3.5" strokeWidth={2.25} />
+              Edit
             </button>
           </div>
         </div>
-        {/* Mini-tabs per note */}
-        <div className="flex gap-1 flex-wrap">
+        <div className="flex max-w-full gap-1 overflow-x-auto [-webkit-overflow-scrolling:touch] pb-0.5">
           {notes.map((note, i) => {
             const dateLabel = tabDateLabelForNote(note);
             return (
@@ -128,16 +120,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 key={note.noteId}
                 type="button"
                 onClick={() => onActiveIndexChange(i)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium text-left transition-all ${
-                  i === activeIndex ? 'bg-teal-600 text-white shadow-sm' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                className={`shrink-0 rounded-md px-2 py-1 text-left text-[10px] font-medium transition-all ${
+                  i === activeIndex ? 'bg-teal-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                <span className="block leading-tight">{note.title || `Note ${i + 1}`}</span>
-                <span
-                  className={`block text-[10px] font-normal mt-0.5 ${
-                    i === activeIndex ? 'text-teal-100' : 'text-slate-500'
-                  }`}
-                >
+                <span className="block max-w-[7rem] truncate leading-tight sm:max-w-[10rem]">{note.title || `Note ${i + 1}`}</span>
+                <span className={`mt-0.5 block text-[9px] font-normal ${i === activeIndex ? 'text-teal-100' : 'text-slate-500'}`}>
                   {dateLabel}
                 </span>
               </button>
@@ -146,90 +134,92 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       </div>
 
-      {/* Preview: field-by-field read-only view */}
       {viewMode === 'preview' ? (
-        <div className="flex-1 overflow-auto bg-slate-50/50 p-4">
-          <div className="max-w-2xl mx-auto space-y-4">
-            <h2 className="text-base font-semibold text-slate-800 border-b border-slate-200 pb-2">{activeNote.title || 'Untitled note'}</h2>
+        <div className="min-h-0 flex-1 overflow-y-auto bg-slate-100/60 px-2 py-2 sm:px-3">
+          <p className="mb-2 text-center text-[10px] font-medium uppercase tracking-wide text-slate-400">Document preview</p>
+          <article className="mx-auto max-w-[48rem] rounded-sm border border-slate-200/90 bg-white px-4 py-4 shadow-sm sm:px-8 sm:py-6 font-serif text-[15px] leading-relaxed text-slate-800">
+            <h1 className="mb-4 border-b border-slate-200 pb-2 font-sans text-lg font-bold tracking-tight text-slate-900 sm:text-xl">
+              {activeNote.title || 'Untitled note'}
+            </h1>
             {fields.length === 0 ? (
-              <p className="text-sm text-slate-500 italic">No structured content to preview. Switch to Edit to add or change the note.</p>
+              <p className="font-sans text-sm italic text-slate-500">No structured content. Switch to Edit to add text.</p>
             ) : (
-              fields.map((field, idx) => (
-                <div key={idx} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                  {field.label ? (
-                    <>
-                      <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                        {field.label}
-                      </div>
-                      <div className="px-4 py-3 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
-                        {field.body || '—'}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="px-4 py-3 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
-                      {field.body}
-                    </div>
-                  )}
-                </div>
-              ))
+              <div className="space-y-4">
+                {fields.map((field, idx) => (
+                  <section key={idx} className="border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                    {field.label ? (
+                      <>
+                        <h3 className="mb-1 font-sans text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                          {field.label}
+                        </h3>
+                        <div className="whitespace-pre-wrap text-slate-800">{field.body || '—'}</div>
+                      </>
+                    ) : (
+                      <div className="whitespace-pre-wrap text-slate-800">{field.body}</div>
+                    )}
+                  </section>
+                ))}
+              </div>
             )}
-          </div>
+          </article>
         </div>
       ) : (
-        /* Edit: title + content */
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden font-sans">
           <input
             type="text"
             value={activeNote.title}
             onChange={(e) => onNoteChange(activeIndex, { title: e.target.value })}
             placeholder="Note title"
-            className="w-full px-4 py-2 border-b border-slate-200 text-sm font-semibold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-100"
+            className="shrink-0 border-b border-slate-100 px-3 py-2 text-sm font-semibold text-slate-800 outline-none focus:bg-slate-50/80"
           />
           <textarea
             value={activeNote.content}
             onChange={(e) => onNoteChange(activeIndex, { content: e.target.value })}
             placeholder="Note content..."
-            className="flex-1 w-full p-4 focus:outline-none resize-none text-sm leading-relaxed text-slate-700 border-0"
+            className="min-h-0 flex-1 resize-none border-0 p-3 text-sm leading-relaxed text-slate-700 outline-none focus:bg-slate-50/50"
           />
         </div>
       )}
 
-      <div className="shrink-0 bg-slate-50 border-t border-slate-200 p-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/90 px-2 py-2 sm:px-3">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             onClick={() => onSaveAsDocx(activeIndex)}
-            disabled={busy || !notePlain.trim()}
-            className="flex items-center gap-2 bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 disabled:opacity-50 font-medium transition-all shadow-sm text-sm"
+            disabled={busy || docxBusy || !notePlain.trim()}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-teal-600 px-2.5 py-1.5 text-[11px] font-bold text-white shadow-sm hover:bg-teal-700 disabled:opacity-50"
           >
-            {savingNoteIndex === activeIndex ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
-            Save as DOCX
+            {savingNoteIndex === activeIndex || (docxBusy && savingNoteIndex === activeIndex) ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FileDown className="h-3.5 w-3.5" />
+            )}
+            DOCX
           </button>
           <button
             type="button"
             onClick={() => onEmail(activeIndex)}
             disabled={busy}
-            title={notePlain.trim() ? 'Email this note' : 'Email will include patient chart details even if this note is empty'}
-            className="flex items-center gap-2 bg-slate-600 text-white px-4 py-2 rounded-lg hover:bg-slate-700 disabled:opacity-50 font-medium transition-all shadow-sm text-sm"
+            title={notePlain.trim() ? 'Email this note' : 'Email includes chart if note is empty'}
+            aria-label="Email note"
+            className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
           >
-            <Mail className="w-4 h-4" /> Email
+            <Mail className="h-4 w-4" aria-hidden />
           </button>
           {notes.length > 1 && (
             <button
               type="button"
               onClick={onSaveAll}
-              disabled={busy}
-              className="flex items-center gap-2 bg-teal-700 text-white px-4 py-2 rounded-lg hover:bg-teal-800 disabled:opacity-50 font-medium transition-all shadow-sm text-sm"
+              disabled={busy || docxBusy}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-teal-800 px-2.5 py-1.5 text-[11px] font-bold text-white hover:bg-teal-900 disabled:opacity-50"
             >
-              {status === AppStatus.SAVING ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              Save All
+              {docxBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              All
             </button>
           )}
         </div>
         {activeNote.lastSavedAt && (
-          <span className="text-xs text-slate-400">
-            Last saved: {new Date(activeNote.lastSavedAt).toLocaleString()}
-          </span>
+          <span className="text-[10px] text-slate-400">Saved {formatDocumentDateDisplay(new Date(activeNote.lastSavedAt))}</span>
         )}
       </div>
     </div>

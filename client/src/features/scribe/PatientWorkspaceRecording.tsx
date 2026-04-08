@@ -5,11 +5,11 @@ import {
   Play,
   ParkingSquare,
   ListMusic,
+  Upload,
   X,
   Check,
   Trash2,
   Wand2,
-  ChevronDown,
 } from 'lucide-react';
 import { useRecordingSessions } from './RecordingSessionsContext';
 
@@ -18,19 +18,23 @@ interface Props {
   patientName: string;
   onError: (message: string) => void;
   onTranscriptionQueued: () => void;
-  /** Placed next to Upload in the patient header */
+  onUploadClick: () => void;
+  uploadDisabled?: boolean;
+  /** Desktop header slot: toolbar + caller adds Upload next to it */
   children: (toolbar: React.ReactNode) => React.ReactNode;
 }
 
 /**
- * Recording UI scoped to an open patient chart: compact header toolbar + sessions drawer.
- * No floating FAB or mobile bottom dock — avoids overlap with tabs and extra scrolling.
+ * Recording UI for patient chart: on md+ toolbar via children; on mobile a fixed bottom bar
+ * (Upload + record + sessions) so the primary actions are thumb-reachable.
  */
 export const PatientWorkspaceRecording: React.FC<Props> = ({
   patientId,
   patientName,
   onError,
   onTranscriptionQueued,
+  onUploadClick,
+  uploadDisabled = false,
   children,
 }) => {
   const {
@@ -107,155 +111,188 @@ export const PatientWorkspaceRecording: React.FC<Props> = ({
   const currentPatientProcessing = processingPatientIds.has(patientId);
   const fabDisabled = currentPatientProcessing;
 
+  const transcribingBanner =
+    anyTranscribing ? (
+      <div className="flex w-full items-center gap-2 rounded-lg border border-teal-200 bg-teal-50/95 px-2.5 py-1.5">
+        <Wand2 className="h-3.5 w-3.5 shrink-0 animate-spin text-teal-600" />
+        <span className="text-[11px] font-bold text-teal-900">
+          Transcribing{processingPatientIds.size > 1 ? ` (${processingPatientIds.size})` : ''}…
+        </span>
+        {longWait && <span className="text-[10px] text-slate-600">15–60s</span>}
+      </div>
+    ) : null;
+
   const statusChip =
     isThisPatientRecording && isLiveCapturing ? (
-      <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
+      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-red-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" />
         Live
       </span>
     ) : isThisPatientRecording && isMicHeldPaused ? (
-      <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
+      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-200 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
         <Pause className="h-3 w-3" />
         Held
       </span>
     ) : null;
 
-  const toolbar = (
-    <div className="flex w-full md:w-auto flex-col gap-2 md:items-end">
-      {anyTranscribing && (
-        <div className="flex w-full items-center gap-2 rounded-lg border border-teal-200 bg-teal-50/95 px-2.5 py-1.5 md:max-w-md md:justify-end">
-          <Wand2 className="h-3.5 w-3.5 shrink-0 animate-spin text-teal-600" />
-          <span className="text-[11px] font-bold text-teal-900">
-            Transcribing{processingPatientIds.size > 1 ? ` (${processingPatientIds.size})` : ''}…
-          </span>
-          {longWait && <span className="text-[10px] text-slate-600">15–60s</span>}
-        </div>
-      )}
-
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        {statusChip}
-
-        {isThisPatientRecording && (isLiveCapturing || isMicHeldPaused) && (
-          <>
-            {isLiveCapturing && (
-              <button
-                type="button"
-                onClick={holdRecording}
-                className="touch-manipulation inline-flex min-h-[40px] items-center justify-center gap-1 rounded-lg bg-amber-500 px-2.5 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm active:bg-amber-600"
-                title="Pause microphone"
-              >
-                <Pause className="h-3.5 w-3.5 shrink-0" />
-                <span className="hidden min-[380px]:inline">Hold</span>
-              </button>
-            )}
-            {isMicHeldPaused && (
-              <button
-                type="button"
-                onClick={resumeHeldRecording}
-                className="touch-manipulation inline-flex min-h-[40px] items-center justify-center gap-1 rounded-lg bg-emerald-600 px-2.5 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm active:bg-emerald-700"
-                title="Resume microphone"
-              >
-                <Play className="h-3.5 w-3.5 shrink-0" />
-                <span className="hidden min-[380px]:inline">Mic</span>
-              </button>
-            )}
+  const holdParkResumeFinish = (
+    <>
+      {isThisPatientRecording && (isLiveCapturing || isMicHeldPaused) && (
+        <>
+          {isLiveCapturing && (
             <button
               type="button"
-              onClick={handlePark}
-              className="touch-manipulation inline-flex min-h-[40px] items-center justify-center gap-1 rounded-lg bg-slate-800 px-2.5 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm active:bg-slate-900"
-              title="Park clip and switch patient"
+              onClick={holdRecording}
+              className="touch-manipulation inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1 rounded-lg bg-amber-500 px-2 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm active:bg-amber-600"
+              title="Pause microphone"
             >
-              <ParkingSquare className="h-3.5 w-3.5 shrink-0" />
-              <span className="hidden sm:inline">Park</span>
+              <Pause className="h-3.5 w-3.5 shrink-0" />
+            </button>
+          )}
+          {isMicHeldPaused && (
+            <button
+              type="button"
+              onClick={resumeHeldRecording}
+              className="touch-manipulation inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1 rounded-lg bg-emerald-600 px-2 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm active:bg-emerald-700"
+              title="Resume microphone"
+            >
+              <Play className="h-3.5 w-3.5 shrink-0" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handlePark}
+            className="touch-manipulation inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1 rounded-lg bg-slate-800 px-2 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm active:bg-slate-900"
+            title="Park clip"
+          >
+            <ParkingSquare className="h-3.5 w-3.5 shrink-0" />
+          </button>
+        </>
+      )}
+
+      {forCurrentPatient &&
+        forCurrentPatient.segmentCount > 0 &&
+        !isThisPatientRecording &&
+        forCurrentPatient.status !== 'processing' && (
+          <>
+            <button
+              type="button"
+              onClick={handleMainFab}
+              className="touch-manipulation inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1 rounded-lg border border-teal-300 bg-teal-50 px-2 text-[11px] font-bold text-teal-900"
+            >
+              <Mic className="h-3.5 w-3.5 shrink-0" />
+              <span className="hidden sm:inline">Resume</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleFinishCurrent}
+              disabled={currentPatientProcessing}
+              className="touch-manipulation inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1 rounded-lg bg-teal-600 px-2 text-[11px] font-bold text-white shadow-sm disabled:opacity-50"
+            >
+              <Check className="h-3.5 w-3.5 shrink-0" />
+              <span className="hidden sm:inline">Finish</span>
             </button>
           </>
         )}
+    </>
+  );
 
-        {forCurrentPatient &&
-          forCurrentPatient.segmentCount > 0 &&
-          !isThisPatientRecording &&
-          forCurrentPatient.status !== 'processing' && (
-            <>
-              <button
-                type="button"
-                onClick={handleMainFab}
-                className="touch-manipulation inline-flex min-h-[40px] items-center justify-center gap-1 rounded-lg border border-teal-300 bg-teal-50 px-2.5 text-[11px] font-bold text-teal-900"
-              >
-                <Mic className="h-3.5 w-3.5 shrink-0" />
-                Resume
-              </button>
-              <button
-                type="button"
-                onClick={handleFinishCurrent}
-                disabled={currentPatientProcessing}
-                className="touch-manipulation inline-flex min-h-[40px] items-center justify-center gap-1 rounded-lg bg-teal-600 px-2.5 text-[11px] font-bold text-white shadow-sm disabled:opacity-50"
-              >
-                <Check className="h-3.5 w-3.5 shrink-0" />
-                Finish
-              </button>
-            </>
-          )}
+  const mainMicButton = (
+    <button
+      type="button"
+      onClick={
+        isThisPatientRecording && (isLiveCapturing || isMicHeldPaused) ? handleFinishCurrent : handleMainFab
+      }
+      disabled={fabDisabled}
+      title={
+        isThisPatientRecording && (isLiveCapturing || isMicHeldPaused)
+          ? 'Finish and transcribe'
+          : 'Start dictation'
+      }
+      className={`touch-manipulation flex h-12 w-12 shrink-0 items-center justify-center rounded-full shadow-md transition-transform active:scale-95 md:h-10 md:w-10 ${
+        isThisPatientRecording && (isLiveCapturing || isMicHeldPaused)
+          ? 'bg-emerald-600 text-white active:bg-emerald-700'
+          : fabDisabled
+            ? 'cursor-not-allowed bg-slate-200 text-slate-400'
+            : 'bg-teal-600 text-white active:bg-teal-700'
+      }`}
+    >
+      {currentPatientProcessing ? (
+        <Wand2 className="h-5 w-5 animate-spin" />
+      ) : isThisPatientRecording && (isLiveCapturing || isMicHeldPaused) ? (
+        <Check className="h-5 w-5" />
+      ) : (
+        <Mic className="h-5 w-5" />
+      )}
+    </button>
+  );
 
-        <button
-          type="button"
-          onClick={() => (panelOpen ? closePanel() : openPanel())}
-          className="touch-manipulation inline-flex min-h-[40px] min-w-[40px] items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-800 shadow-sm active:bg-slate-50"
-          title="All recording sessions"
-        >
-          <ListMusic className="h-4 w-4 shrink-0 text-teal-600" />
-          {activeCount > 0 && (
-            <span className="min-w-[1.25rem] rounded-full bg-teal-600 px-1.5 py-0.5 text-center text-[10px] font-bold text-white">
-              {activeCount}
-            </span>
-          )}
-          <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${panelOpen ? 'rotate-180' : ''}`} />
-        </button>
+  const sessionsButton = (
+    <button
+      type="button"
+      onClick={() => (panelOpen ? closePanel() : openPanel())}
+      className="relative touch-manipulation inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-800 shadow-sm active:bg-slate-50"
+      title="Recording sessions"
+      aria-label="Recording sessions"
+    >
+      <ListMusic className="h-5 w-5 shrink-0 text-teal-600" />
+      {activeCount > 0 ? (
+        <span className="absolute -right-1 -top-1 min-w-[1.1rem] rounded-full bg-teal-600 px-1 text-center text-[9px] font-bold text-white">
+          {activeCount}
+        </span>
+      ) : null}
+    </button>
+  );
 
-        <button
-          type="button"
-          onClick={
-            isThisPatientRecording && (isLiveCapturing || isMicHeldPaused) ? handleFinishCurrent : handleMainFab
-          }
-          disabled={fabDisabled}
-          title={
-            isThisPatientRecording && (isLiveCapturing || isMicHeldPaused)
-              ? 'Finish and transcribe'
-              : 'Start dictation for this patient'
-          }
-          className={`touch-manipulation flex h-11 w-11 shrink-0 items-center justify-center rounded-full shadow-md transition-transform active:scale-95 sm:h-10 sm:w-10 ${
-            isThisPatientRecording && (isLiveCapturing || isMicHeldPaused)
-              ? 'bg-emerald-600 text-white active:bg-emerald-700'
-              : fabDisabled
-                ? 'cursor-not-allowed bg-slate-200 text-slate-400'
-                : 'bg-teal-600 text-white active:bg-teal-700'
-          }`}
-        >
-          {currentPatientProcessing ? (
-            <Wand2 className="h-5 w-5 animate-spin" />
-          ) : isThisPatientRecording && (isLiveCapturing || isMicHeldPaused) ? (
-            <Check className="h-5 w-5" />
-          ) : (
-            <Mic className="h-5 w-5" />
-          )}
-        </button>
+  const desktopToolbar = (
+    <div className="flex w-full flex-col gap-2 md:w-auto md:items-end">
+      {transcribingBanner}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {statusChip}
+        {holdParkResumeFinish}
+        {sessionsButton}
+        {mainMicButton}
       </div>
     </div>
   );
 
   return (
     <>
-      {children(toolbar)}
+      {children(desktopToolbar)}
+
+      {/* Mobile primary dock */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 md:hidden">
+        <div className="pointer-events-auto border-t border-slate-200/90 bg-white/95 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-4px_20px_-4px_rgba(15,23,42,0.12)]">
+          {transcribingBanner ? <div className="mb-2">{transcribingBanner}</div> : null}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onUploadClick}
+              disabled={uploadDisabled}
+              className="touch-manipulation flex min-h-[48px] min-w-[48px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl bg-teal-600 text-[10px] font-bold text-white shadow-sm active:bg-teal-700 disabled:opacity-45"
+              title="Upload file"
+            >
+              <Upload className="h-5 w-5" strokeWidth={2.25} />
+              <span className="leading-none">Upload</span>
+            </button>
+            <div className="flex min-h-[52px] min-w-0 flex-1 items-center justify-center gap-1 overflow-x-auto [-webkit-overflow-scrolling:touch] px-1">
+              {statusChip}
+              {holdParkResumeFinish}
+              {mainMicButton}
+            </div>
+            <div className="relative shrink-0">{sessionsButton}</div>
+          </div>
+        </div>
+      </div>
 
       {panelOpen && (
         <>
           <div className="fixed inset-0 z-[60] bg-slate-900/40" aria-hidden onClick={closePanel} />
-          <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-2 right-2 z-[70] flex max-h-[min(72dvh,calc(100dvh-8rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl sm:left-auto sm:right-4 sm:w-96 md:bottom-auto md:top-1/2 md:h-auto md:max-h-[min(70dvh,32rem)] md:-translate-y-1/2">
+          <div className="fixed bottom-[max(6rem,env(safe-area-inset-bottom)+5rem)] left-2 right-2 z-[70] flex max-h-[min(65dvh,calc(100dvh-10rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl sm:left-auto sm:right-4 sm:w-96 md:bottom-auto md:top-1/2 md:h-auto md:max-h-[min(70dvh,32rem)] md:-translate-y-1/2">
             <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-3">
               <div>
-                <h3 className="text-sm font-bold text-slate-800">Recording sessions</h3>
-                <p className="mt-0.5 text-[10px] text-slate-500">
-                  Park saves the clip so you can open another patient. Finish merges segments to transcribe.
-                </p>
+                <h3 className="text-sm font-bold text-slate-800">Sessions</h3>
+                <p className="mt-0.5 text-[10px] text-slate-500">Park to switch patient; Finish merges clips to transcribe.</p>
               </div>
               <button
                 type="button"
@@ -267,9 +304,7 @@ export const PatientWorkspaceRecording: React.FC<Props> = ({
             </div>
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2 [-webkit-overflow-scrolling:touch]">
               {sessions.length === 0 ? (
-                <p className="px-4 py-8 text-center text-sm text-slate-500">
-                  No active recordings. Use the microphone beside Upload for this patient.
-                </p>
+                <p className="px-4 py-8 text-center text-sm text-slate-500">No other sessions.</p>
               ) : (
                 sessions.map((s) => (
                   <div

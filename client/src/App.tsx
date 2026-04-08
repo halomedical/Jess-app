@@ -7,7 +7,6 @@ import { Toast } from './components/Toast';
 import { SettingsModal } from './components/SettingsModal';
 import { checkAuth, getLoginUrl, logout, fetchAllPatients, createPatient, deletePatient, loadSettings, saveSettings, ApiError } from './services/api';
 import type { Patient, UserSettings } from '../../shared/types';
-import { DEFAULT_HALO_TEMPLATE_ID } from '../../shared/haloTemplates';
 import { LogIn, Loader, X, UserPlus, Calendar, Users, AlertTriangle, Trash2 } from 'lucide-react';
 import { SignInBranding } from './components/SignInBranding';
 import { EcgRhythmStrip } from './components/EcgRhythmStrip';
@@ -256,6 +255,15 @@ export const App = () => {
   }
 
   const activePatient = patients.find(p => p.id === selectedPatientId);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  const selectPatientAndCloseMobile = useCallback(
+    (id: string | null) => {
+      selectPatient(id);
+      setMobileSidebarOpen(false);
+    },
+    [selectPatient]
+  );
 
   return (
     <RecordingSessionsProvider>
@@ -266,7 +274,7 @@ export const App = () => {
           patients={patients}
           selectedPatientId={selectedPatientId}
           recentPatientIds={recentPatientIds}
-          onSelectPatient={selectPatient}
+          onSelectPatient={selectPatientAndCloseMobile}
           onCreatePatient={openCreateModal}
           onDeletePatient={handleDeleteRequest}
           onLogout={handleLogout}
@@ -276,6 +284,37 @@ export const App = () => {
         />
       </div>
 
+      {selectedPatientId && mobileSidebarOpen ? (
+        <>
+          <button
+            type="button"
+            aria-label="Close menu"
+            className="fixed inset-0 z-[45] bg-slate-900/50 md:hidden"
+            onClick={() => setMobileSidebarOpen(false)}
+          />
+          <div className="fixed inset-y-0 left-0 z-[50] flex w-[min(calc(100vw-3rem),20rem)] min-h-0 shadow-2xl md:hidden">
+            <Sidebar
+              patients={patients}
+              selectedPatientId={selectedPatientId}
+              recentPatientIds={recentPatientIds}
+              onSelectPatient={selectPatientAndCloseMobile}
+              onCreatePatient={() => {
+                setMobileSidebarOpen(false);
+                openCreateModal();
+              }}
+              onDeletePatient={handleDeleteRequest}
+              onLogout={handleLogout}
+              onOpenSettings={() => {
+                setMobileSidebarOpen(false);
+                setShowSettings(true);
+              }}
+              userEmail={userEmail}
+              userSettings={userSettings}
+            />
+          </div>
+        </>
+      ) : null}
+
       <div className={`flex-1 flex flex-col min-h-0 h-full relative ${!selectedPatientId ? 'hidden md:flex' : 'flex'}`}>
         {activePatient ? (
           <PatientWorkspace
@@ -284,7 +323,7 @@ export const App = () => {
             onDataChange={refreshPatients}
             onToast={showToast}
             userEmail={userEmail}
-            templateId={userSettings?.templateId || DEFAULT_HALO_TEMPLATE_ID}
+            onOpenMobileNav={() => setMobileSidebarOpen(true)}
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-slate-300 relative overflow-hidden">

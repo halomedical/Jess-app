@@ -90,7 +90,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
       </div>
 
       {/* File / folder listing */}
-      <div className="grid grid-cols-1 gap-3">
+      <div className="grid grid-cols-1 gap-2">
         {status === AppStatus.LOADING ? (
           <FileSkeleton />
         ) : folders.length === 0 && regularFiles.length === 0 ? (
@@ -104,7 +104,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
               <div className="flex flex-col items-center gap-2">
                 <FolderOpen className="w-10 h-10 text-slate-300" />
                 <p className="text-slate-400 font-medium">This folder is empty</p>
-                <p className="text-slate-300 text-sm">Upload files using the button above</p>
+                <p className="text-slate-300 text-sm">Upload from the workspace toolbar or bottom bar</p>
               </div>
             )}
           </div>
@@ -122,19 +122,19 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                   return (
                   <div
                     key={folder.id}
-                    className="group flex cursor-pointer flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 transition-all duration-200 hover:border-teal-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-4 sm:p-4"
+                    className="group flex cursor-pointer flex-col gap-2 rounded-lg border border-slate-200 bg-white p-2.5 transition-all duration-200 hover:border-teal-200 hover:shadow-sm sm:flex-row sm:items-center sm:gap-3 sm:p-3"
                     onClick={() => onNavigateToFolder(folder)}
                   >
-                    <div className="flex min-w-0 flex-1 items-start gap-3">
-                      <div className="shrink-0 rounded-lg bg-teal-100 p-2.5 text-teal-600">
+                    <div className="flex min-w-0 flex-1 items-start gap-2.5">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-teal-600">
                         <FolderOpen className="h-5 w-5" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <h4 className="break-words font-semibold text-slate-800 transition-colors group-hover:text-teal-700">{folder.name}</h4>
-                        <p className="mt-1 text-xs text-slate-500">Folder · {folder.createdTime}</p>
+                        <h4 className="line-clamp-2 break-words font-semibold text-slate-800 transition-colors group-hover:text-teal-700">{folder.name}</h4>
+                        <p className="mt-0.5 text-[11px] text-slate-500">Folder · {folder.createdTime}</p>
                       </div>
                     </div>
-                    <div className="flex shrink-0 items-center justify-end gap-0.5 border-t border-slate-100 pt-2 sm:border-t-0 sm:pt-0">
+                    <div className="flex w-full shrink-0 items-center justify-end gap-0 border-t border-slate-100 pt-2 sm:w-auto sm:gap-0 sm:border-t-0 sm:pt-0">
                       {!protectedFolder && (
                         <>
                           <button
@@ -185,19 +185,19 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                   return (
                     <div
                       key={file.id}
-                      className="group flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 transition-all duration-200 hover:border-teal-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-4 sm:p-4"
+                      className="group flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-2.5 transition-all duration-200 hover:border-teal-200 hover:shadow-sm sm:flex-row sm:items-center sm:gap-3 sm:p-3"
                     >
-                      <div className="flex min-w-0 flex-1 items-start gap-3">
-                        <div className={`shrink-0 rounded-lg p-2.5 ${iconClass}`}>
+                      <div className="flex min-w-0 flex-1 items-start gap-2.5">
+                        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${iconClass}`}>
                           <IconComponent className="h-5 w-5" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <h4 className="break-words font-semibold text-slate-800 transition-colors group-hover:text-teal-700">{file.name}</h4>
-                          <p className="mt-1 text-xs text-slate-500">{file.createdTime}</p>
-                          <p className="text-[11px] text-slate-400">{getFriendlyFileType(file.mimeType)}</p>
+                          <h4 className="line-clamp-2 break-words font-semibold text-slate-800 transition-colors group-hover:text-teal-700">{file.name}</h4>
+                          <p className="mt-0.5 text-[11px] text-slate-500">{file.createdTime}</p>
+                          <p className="text-[10px] text-slate-400">{getFriendlyFileType(file.mimeType)}</p>
                         </div>
                       </div>
-                      <div className="flex shrink-0 flex-wrap items-center justify-end gap-0.5 border-t border-slate-100 pt-2 sm:border-t-0 sm:pt-0">
+                      <div className="flex w-full shrink-0 flex-nowrap items-center justify-end gap-0 border-t border-slate-100 pt-2 sm:w-auto sm:border-t-0 sm:pt-0">
                         {onEmailFile && (
                           <button
                             type="button"
@@ -206,25 +206,25 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                               e.stopPropagation();
                               onEmailFile(file);
                             }}
-                            className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+                            className="flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
                             title="Email this file from Drive"
                           >
-                            <Mail size={18} strokeWidth={2} aria-hidden />
+                            <Mail size={17} strokeWidth={2} aria-hidden />
                             <span className="sr-only">Email file</span>
                           </button>
                         )}
                         <button
                           type="button"
                           onClick={() => onViewFile(file)}
-                          className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-teal-50 hover:text-teal-700 sm:opacity-0 sm:group-hover:opacity-100"
+                          className="flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-teal-50 hover:text-teal-700 sm:opacity-0 sm:group-hover:opacity-100"
                           title="Preview"
                         >
-                          <Eye size={17} aria-hidden />
+                          <Eye size={16} aria-hidden />
                         </button>
                         <button
                           type="button"
                           onClick={() => onStartEditFile(file)}
-                          className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-50 hover:text-teal-600 sm:opacity-0 sm:group-hover:opacity-100"
+                          className="flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-50 hover:text-teal-600 sm:opacity-0 sm:group-hover:opacity-100"
                           title="Rename"
                         >
                           <Pencil size={16} aria-hidden />
@@ -232,7 +232,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                         <button
                           type="button"
                           onClick={() => onDeleteFile(file)}
-                          className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500 sm:opacity-0 sm:group-hover:opacity-100"
+                          className="flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500 sm:opacity-0 sm:group-hover:opacity-100"
                           title="Delete"
                         >
                           <Trash2 size={16} aria-hidden />
@@ -241,7 +241,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                           href={file.url}
                           target="_blank"
                           rel="noreferrer"
-                          className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-50 hover:text-teal-600 sm:opacity-0 sm:group-hover:opacity-100"
+                          className="flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-50 hover:text-teal-600 sm:opacity-0 sm:group-hover:opacity-100"
                           title="Open in Google Drive"
                         >
                           <ExternalLink size={16} aria-hidden />

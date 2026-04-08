@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import type { ChatMessage } from '../../../shared/types';
-import { MessageCircle, Send } from 'lucide-react';
+import { Send } from 'lucide-react';
 import { renderInlineMarkdown } from '../utils/formatting';
 
 interface PatientChatProps {
@@ -23,30 +23,20 @@ export const PatientChat: React.FC<PatientChatProps> = ({
   }, [chatMessages, chatLoading]);
 
   return (
-    <div className="h-[600px] flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-      <div className="bg-gradient-to-r from-teal-50 to-teal-100 px-4 py-3 border-b border-slate-200 flex items-center gap-2">
-        <MessageCircle size={16} className="text-teal-600" />
-        <span className="text-sm font-bold text-teal-800 uppercase tracking-wider">Ask HALO</span>
-        <span className="text-xs text-slate-400 ml-2">AI-powered patient data assistant</span>
-      </div>
-
-      {/* Chat messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-slate-200/80 bg-white">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2 md:px-4 md:py-3">
         {chatMessages.length === 0 && !chatLoading && (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="w-16 h-16 bg-teal-50 rounded-full flex items-center justify-center mb-4">
-              <MessageCircle size={28} className="text-teal-400" />
-            </div>
-            <h3 className="text-lg font-bold text-slate-700 mb-1">Ask HALO anything</h3>
-            <p className="text-sm text-slate-400 max-w-sm">
-              I can answer questions about <span className="font-semibold text-slate-500">{patientName}</span>'s files and clinical data.
+          <div className="flex h-full min-h-[8rem] flex-col justify-center text-center">
+            <p className="text-xs text-slate-500">
+              Ask HALO about <span className="font-semibold text-slate-700">{patientName}</span>&apos;s files and notes.
             </p>
-            <div className="mt-4 flex flex-wrap gap-2 justify-center">
-              {['Summarize recent notes', 'Any abnormal lab results?', 'What medications are listed?'].map(q => (
+            <div className="mt-3 flex flex-wrap justify-center gap-1.5">
+              {['Summarize recent notes', 'Any abnormal labs?', 'Listed medications?'].map((q) => (
                 <button
                   key={q}
+                  type="button"
                   onClick={() => onChatInputChange(q)}
-                  className="text-xs px-3 py-1.5 bg-slate-100 hover:bg-teal-50 text-slate-600 hover:text-teal-700 rounded-full transition-colors border border-slate-200 hover:border-teal-200"
+                  className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-medium text-slate-600 transition-colors hover:border-teal-200 hover:bg-teal-50/80 hover:text-teal-800"
                 >
                   {q}
                 </button>
@@ -55,51 +45,52 @@ export const PatientChat: React.FC<PatientChatProps> = ({
           </div>
         )}
 
-        {chatMessages.map((msg, idx) => {
-          const isLastAssistantStreaming = chatLoading && idx === chatMessages.length - 1 && msg.role === 'assistant';
-          return (
-            <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-                msg.role === 'user'
-                  ? 'bg-teal-600 text-white rounded-br-md'
-                  : 'bg-slate-100 text-slate-800 rounded-bl-md border border-slate-200'
-              }`}>
-                {msg.role === 'assistant' && (
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-teal-600 block mb-1">HALO</span>
-                )}
-                <div className="text-sm leading-relaxed whitespace-pre-wrap">
-                  {msg.content.split('\n').map((line, li) => (
-                    <span key={li}>{li > 0 && <br />}{renderInlineMarkdown(line)}</span>
-                  ))}
-                  {isLastAssistantStreaming && <span className="inline-block w-2 h-4 ml-0.5 bg-teal-500 animate-pulse" />}
+        <div className="space-y-2.5">
+          {chatMessages.map((msg, idx) => {
+            const isLastAssistantStreaming = chatLoading && idx === chatMessages.length - 1 && msg.role === 'assistant';
+            return (
+              <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[85%] rounded-2xl px-3 py-2 ${
+                  msg.role === 'user'
+                    ? 'rounded-br-md bg-teal-600 text-white'
+                    : 'rounded-bl-md border border-slate-200 bg-slate-50 text-slate-800'
+                }`}>
+                  {msg.role === 'assistant' && (
+                    <span className="mb-0.5 block text-[9px] font-bold uppercase tracking-wider text-teal-600">HALO</span>
+                  )}
+                  <div className="text-sm leading-relaxed whitespace-pre-wrap">
+                    {msg.content.split('\n').map((line, li) => (
+                      <span key={li}>{li > 0 && <br />}{renderInlineMarkdown(line)}</span>
+                    ))}
+                    {isLastAssistantStreaming && <span className="ml-0.5 inline-block h-3 w-1.5 animate-pulse bg-teal-500" />}
+                  </div>
+                  {!isLastAssistantStreaming && (
+                    <span className={`mt-1 block text-[9px] ${msg.role === 'user' ? 'text-teal-200' : 'text-slate-400'}`}>
+                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
                 </div>
-                {!isLastAssistantStreaming && (
-                  <span className={`text-[10px] mt-1 block ${msg.role === 'user' ? 'text-teal-200' : 'text-slate-400'}`}>
-                    {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                )}
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
 
-        {/* Thinking animation — show until first chunk arrives; "may take a while" after 8s */}
         {chatLoading && !(chatMessages.length > 0 && chatMessages[chatMessages.length - 1]?.role === 'assistant' && chatMessages[chatMessages.length - 1]?.content) && (
-          <div className="flex justify-start">
-            <div className="bg-slate-100 border border-slate-200 rounded-2xl rounded-bl-md px-4 py-3 max-w-[80%]">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-teal-600 block mb-1">HALO</span>
-              <div className="flex flex-col gap-1.5">
+          <div className="mt-2 flex justify-start">
+            <div className="max-w-[85%] rounded-2xl rounded-bl-md border border-slate-200 bg-slate-50 px-3 py-2">
+              <span className="mb-0.5 block text-[9px] font-bold uppercase tracking-wider text-teal-600">HALO</span>
+              <div className="flex flex-col gap-1">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-sm text-slate-500 italic animate-pulse">(HALO is thinking...)</span>
+                  <span className="text-xs italic text-slate-500">Thinking…</span>
                   <span className="flex gap-0.5">
-                    <span className="w-1.5 h-1.5 bg-teal-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <span className="w-1.5 h-1.5 bg-teal-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <span className="w-1.5 h-1.5 bg-teal-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                    <span className="h-1 w-1 animate-bounce rounded-full bg-teal-400" style={{ animationDelay: '0ms' }} />
+                    <span className="h-1 w-1 animate-bounce rounded-full bg-teal-400" style={{ animationDelay: '150ms' }} />
+                    <span className="h-1 w-1 animate-bounce rounded-full bg-teal-400" style={{ animationDelay: '300ms' }} />
                   </span>
                 </div>
-                {chatLongWait && (
-                  <span className="text-xs text-slate-400">Complex questions may take 15–60 seconds.</span>
-                )}
+                {chatLongWait ? (
+                  <span className="text-[10px] text-slate-400">Complex questions may take 15–60 seconds.</span>
+                ) : null}
               </div>
             </div>
           </div>
@@ -108,24 +99,25 @@ export const PatientChat: React.FC<PatientChatProps> = ({
         <div ref={chatEndRef} />
       </div>
 
-      {/* Chat input */}
-      <div className="border-t border-slate-200 p-3 bg-slate-50">
-        <div className="flex items-center gap-2">
+      <div className="shrink-0 border-t border-slate-100 bg-slate-50/90 px-2 py-2 md:px-3">
+        <div className="flex items-center gap-1.5">
           <input
             type="text"
             value={chatInput}
-            onChange={e => onChatInputChange(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSendChat(); } }}
-            placeholder="Ask a question about this patient..."
-            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 text-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition placeholder:text-slate-400"
+            onChange={(e) => onChatInputChange(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSendChat(); } }}
+            placeholder="Ask about this patient…"
+            className="min-h-[40px] flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
             disabled={chatLoading}
           />
           <button
+            type="button"
             onClick={onSendChat}
             disabled={!chatInput.trim() || chatLoading}
-            className="p-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl disabled:opacity-40 transition-all shadow-sm"
+            className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg bg-teal-600 p-2 text-white shadow-sm transition-all hover:bg-teal-700 disabled:opacity-40"
+            aria-label="Send message"
           >
-            <Send size={18} />
+            <Send size={17} />
           </button>
         </div>
       </div>

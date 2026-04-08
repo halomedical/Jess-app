@@ -122,36 +122,40 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                   return (
                   <div
                     key={folder.id}
-                    className="group flex items-center p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-teal-200 transition-all duration-200 cursor-pointer"
+                    className="group flex cursor-pointer flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 transition-all duration-200 hover:border-teal-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-4 sm:p-4"
                     onClick={() => onNavigateToFolder(folder)}
                   >
-                    <div className="p-3 rounded-lg mr-4 bg-teal-100 text-teal-600">
-                      <FolderOpen className="w-5 h-5" />
+                    <div className="flex min-w-0 flex-1 items-start gap-3">
+                      <div className="shrink-0 rounded-lg bg-teal-100 p-2.5 text-teal-600">
+                        <FolderOpen className="h-5 w-5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="break-words font-semibold text-slate-800 transition-colors group-hover:text-teal-700">{folder.name}</h4>
+                        <p className="mt-1 text-xs text-slate-500">Folder · {folder.createdTime}</p>
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-semibold text-slate-800 group-hover:text-teal-700 transition-colors truncate">{folder.name}</h4>
-                      <p className="text-xs text-slate-500 mt-1">Folder &bull; {folder.createdTime}</p>
-                    </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex shrink-0 items-center justify-end gap-0.5 border-t border-slate-100 pt-2 sm:border-t-0 sm:pt-0">
                       {!protectedFolder && (
                         <>
                           <button
+                            type="button"
                             onClick={(e) => { e.stopPropagation(); onStartEditFile(folder); }}
-                            className="p-2 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                            className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-50 hover:text-teal-600 sm:opacity-0 sm:group-hover:opacity-100"
                             title="Rename folder"
                           >
-                            <Pencil size={16} />
+                            <Pencil size={16} aria-hidden />
                           </button>
                           <button
+                            type="button"
                             onClick={(e) => { e.stopPropagation(); onDeleteFile(folder); }}
-                            className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                            className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500 sm:opacity-0 sm:group-hover:opacity-100"
                             title="Delete folder"
                           >
-                            <Trash2 size={16} />
+                            <Trash2 size={16} aria-hidden />
                           </button>
                         </>
                       )}
-                      <ChevronRight size={18} className="text-slate-300 group-hover:text-teal-500 transition-colors" />
+                      <ChevronRight size={18} className="shrink-0 text-slate-300 transition-colors group-hover:text-teal-500" aria-hidden />
                     </div>
                   </div>
                   );
@@ -179,15 +183,21 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                     : isPdf ? FileText
                     : File;
                   return (
-                    <div key={file.id} className="group flex items-center p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-teal-200 transition-all duration-200">
-                      <div className={`p-3 rounded-lg mr-4 ${iconClass}`}>
-                        <IconComponent className="w-5 h-5" />
+                    <div
+                      key={file.id}
+                      className="group flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 transition-all duration-200 hover:border-teal-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-4 sm:p-4"
+                    >
+                      <div className="flex min-w-0 flex-1 items-start gap-3">
+                        <div className={`shrink-0 rounded-lg p-2.5 ${iconClass}`}>
+                          <IconComponent className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <h4 className="break-words font-semibold text-slate-800 transition-colors group-hover:text-teal-700">{file.name}</h4>
+                          <p className="mt-1 text-xs text-slate-500">{file.createdTime}</p>
+                          <p className="text-[11px] text-slate-400">{getFriendlyFileType(file.mimeType)}</p>
+                        </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-semibold text-slate-800 group-hover:text-teal-700 transition-colors truncate">{file.name}</h4>
-                        <p className="text-xs text-slate-500 mt-1 truncate">{file.createdTime} &bull; {getFriendlyFileType(file.mimeType)}</p>
-                      </div>
-                      <div className="flex items-center gap-1 flex-wrap justify-end">
+                      <div className="flex shrink-0 flex-wrap items-center justify-end gap-0.5 border-t border-slate-100 pt-2 sm:border-t-0 sm:pt-0">
                         {onEmailFile && (
                           <button
                             type="button"
@@ -196,23 +206,45 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                               e.stopPropagation();
                               onEmailFile(file);
                             }}
-                            className="flex items-center gap-1 text-sm bg-slate-600 text-white px-3 py-1.5 rounded-md font-medium hover:bg-slate-700 transition-colors min-h-[40px]"
-                            title="Email this file from Drive (not the clinical note in the editor)"
+                            className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+                            title="Email this file from Drive"
                           >
-                            <Mail size={14} /> Email file
+                            <Mail size={18} strokeWidth={2} aria-hidden />
+                            <span className="sr-only">Email file</span>
                           </button>
                         )}
-                        <button type="button" onClick={() => onStartEditFile(file)} className="p-2 min-w-[40px] min-h-[40px] text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-colors sm:opacity-0 sm:group-hover:opacity-100" title="Rename">
-                          <Pencil size={16} />
+                        <button
+                          type="button"
+                          onClick={() => onViewFile(file)}
+                          className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-teal-50 hover:text-teal-700 sm:opacity-0 sm:group-hover:opacity-100"
+                          title="Preview"
+                        >
+                          <Eye size={17} aria-hidden />
                         </button>
-                        <button type="button" onClick={() => onDeleteFile(file)} className="p-2 min-w-[40px] min-h-[40px] text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors sm:opacity-0 sm:group-hover:opacity-100" title="Delete">
-                          <Trash2 size={16} />
+                        <button
+                          type="button"
+                          onClick={() => onStartEditFile(file)}
+                          className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-50 hover:text-teal-600 sm:opacity-0 sm:group-hover:opacity-100"
+                          title="Rename"
+                        >
+                          <Pencil size={16} aria-hidden />
                         </button>
-                        <button type="button" onClick={() => onViewFile(file)} className="hidden sm:flex items-center gap-1.5 text-sm bg-slate-50 text-slate-600 px-3 py-1.5 rounded-md font-medium hover:bg-teal-50 hover:text-teal-700 transition-colors" title="Preview">
-                          <Eye size={14} /> View
+                        <button
+                          type="button"
+                          onClick={() => onDeleteFile(file)}
+                          className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500 sm:opacity-0 sm:group-hover:opacity-100"
+                          title="Delete"
+                        >
+                          <Trash2 size={16} aria-hidden />
                         </button>
-                        <a href={file.url} target="_blank" rel="noreferrer" className="p-2 min-w-[40px] min-h-[40px] text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-colors sm:opacity-0 sm:group-hover:opacity-100" title="Open in new tab">
-                          <ExternalLink size={16} />
+                        <a
+                          href={file.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-50 hover:text-teal-600 sm:opacity-0 sm:group-hover:opacity-100"
+                          title="Open in Google Drive"
+                        >
+                          <ExternalLink size={16} aria-hidden />
                         </a>
                       </div>
                     </div>

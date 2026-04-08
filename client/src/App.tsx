@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { PatientWorkspace } from './pages/PatientWorkspace';
 import { RecordingSessionsProvider } from './features/scribe/RecordingSessionsContext';
-import { MultiSessionScribe } from './features/scribe/MultiSessionScribe';
+import { RecordingSessionPatientSwitchEffect } from './features/scribe/RecordingSessionPatientSwitchEffect';
 import { Toast } from './components/Toast';
 import { SettingsModal } from './components/SettingsModal';
 import { checkAuth, getLoginUrl, logout, fetchAllPatients, createPatient, deletePatient, loadSettings, saveSettings, ApiError } from './services/api';
@@ -259,6 +259,7 @@ export const App = () => {
 
   return (
     <RecordingSessionsProvider>
+    <RecordingSessionPatientSwitchEffect patientId={selectedPatientId} />
     <div className="flex min-h-[100dvh] h-[100dvh] max-h-[100dvh] w-full bg-gradient-to-br from-slate-50 via-white to-teal-50/50 font-sans text-slate-900 overflow-hidden relative">
       <div className={`${selectedPatientId ? 'hidden md:flex' : 'flex'} h-full min-h-0 w-full md:w-auto shrink-0 z-20`}>
         <Sidebar
@@ -440,12 +441,6 @@ export const App = () => {
         </div>
       )}
 
-      <MultiSessionScribe
-        currentPatientId={selectedPatientId}
-        currentPatientName={activePatient?.name ?? null}
-        onError={(msg) => showToast(msg, 'error')}
-        onTranscriptionQueued={() => showToast('Transcription ready in Editor & Scribe.', 'success')}
-      />
     </div>
     </RecordingSessionsProvider>
   );

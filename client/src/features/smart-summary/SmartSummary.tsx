@@ -17,7 +17,7 @@ export const SmartSummary: React.FC<Props> = ({ summary, loading }) => {
       >
         <div className="flex items-center gap-2">
           <Sparkles className="w-5 h-5 text-teal-600" />
-          <h3 className="font-semibold text-teal-900">HALO Smart Summary</h3>
+          <h3 className="font-semibold text-teal-900">Patient summary</h3>
         </div>
         {collapsed ? (
           <ChevronDown className="w-4 h-4 text-teal-600" />

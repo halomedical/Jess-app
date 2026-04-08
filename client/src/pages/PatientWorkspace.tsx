@@ -24,6 +24,7 @@ import {
 import { SmartSummary } from '../features/smart-summary/SmartSummary';
 import { LabAlerts } from '../features/lab-alerts/LabAlerts';
 import { useRecordingSessions } from '../features/scribe/RecordingSessionsContext';
+import { PatientWorkspaceRecording } from '../features/scribe/PatientWorkspaceRecording';
 import { FileViewer } from '../components/FileViewer';
 import { FileBrowser } from '../components/FileBrowser';
 import { NoteEditor } from '../components/NoteEditor';
@@ -194,6 +195,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showAiPanel, setShowAiPanel] = useState(true);
+  /** User-triggered only — no automatic Gemini summary on folder open */
+  const [patientInsightLoading, setPatientInsightLoading] = useState(false);
   /** After Drive workspace draft fetch finishes (avoids overwriting cloud with empty before first load). */
   const [driveSyncReady, setDriveSyncReady] = useState(false);
 
@@ -402,24 +405,6 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         if (!isMounted) return;
         setFiles(firstFiles);
         setStatus(AppStatus.IDLE);
-
-        if (firstFiles.length > 0) {
-          generatePatientSummary(patient.name, firstFiles, patient.id).then(res => {
-            if (isMounted) setSummary(res);
-          }).catch(() => {});
-
-          const labFiles = firstFiles.filter(f =>
-            f.name.toLowerCase().includes('lab') ||
-            f.name.toLowerCase().includes('blood') ||
-            f.name.toLowerCase().includes('result')
-          );
-          if (labFiles.length > 0) {
-            const labContext = labFiles.map(f => f.name).join(', ');
-            extractLabAlerts(`Patient files indicate lab results: ${labContext}`).then(res => {
-              if (isMounted) setAlerts(res);
-            }).catch(() => {});
-          }
-        }
 
         // Fetch remaining pages in background and append (so full list appears without blocking UI)
         if (nextPage) {
@@ -738,31 +723,40 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     setEmailNoteSending(false);
   }, [emailComposeMode, emailNoteIndex, notes, patient, pendingTranscript, templateId, userEmail, onToast]);
 
-  /** Email anytime: prefer active note text, else dictation, else chart identifiers only. */
-  const openEmailFromToolbar = useCallback(() => {
-    if (!userEmail?.trim()) {
-      onToast('Your Google email is not available. Sign out and sign in again.', 'error');
-      return;
+  const handleGeneratePatientSummary = useCallback(async () => {
+    setPatientInsightLoading(true);
+    setShowAiPanel(true);
+    setSummary([]);
+    setAlerts([]);
+    try {
+      const allRoot = await fetchFiles(patient.id);
+      const list = allRoot.filter((f) => !isHaloWorkspaceDraftFile(f.name));
+      if (list.length === 0) {
+        onToast('No files in this patient folder yet. Upload documents first.', 'info');
+        return;
+      }
+      const sum = await generatePatientSummary(patient.name, list, patient.id);
+      setSummary(sum);
+
+      const labFiles = list.filter(
+        (f) =>
+          f.name.toLowerCase().includes('lab') ||
+          f.name.toLowerCase().includes('blood') ||
+          f.name.toLowerCase().includes('result')
+      );
+      if (labFiles.length > 0) {
+        const labContext = labFiles.map((f) => f.name).join(', ');
+        const labRes = await extractLabAlerts(`Patient files indicate lab results: ${labContext}`);
+        setAlerts(labRes);
+      } else {
+        setAlerts([]);
+      }
+    } catch (err) {
+      onToast(getErrorMessage(err), 'error');
+    } finally {
+      setPatientInsightLoading(false);
     }
-    setWorkspaceTab('notes');
-    const notePlain =
-      notes.length > 0
-        ? buildNotePlainText(notes[Math.min(activeNoteIndex, notes.length - 1)]).trim()
-        : '';
-    const dict = (pendingTranscript ?? '').trim();
-    if (notes.length > 0 && notePlain) {
-      setEmailComposeMode('note');
-      setEmailNoteIndex(Math.min(activeNoteIndex, notes.length - 1));
-    } else if (dict) {
-      setEmailComposeMode('transcript');
-      setEmailNoteIndex(0);
-    } else {
-      setEmailComposeMode('chart_only');
-      setEmailNoteIndex(0);
-    }
-    setDriveFileEmailTarget(null);
-    setShowEmailNoteModal(true);
-  }, [userEmail, notes, activeNoteIndex, pendingTranscript, setWorkspaceTab, onToast]);
+  }, [patient.id, patient.name, onToast]);
 
   useEffect(() => {
     const pid = patient.id;
@@ -1172,9 +1166,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     }
   };
 
-  const hasAiContent = alerts.length > 0 || summary.length > 0;
-  const emailActionsBusy = status === AppStatus.FILING || status === AppStatus.SAVING;
-  const stickyEmailDisabled = emailActionsBusy || !userEmail?.trim();
+  const hasSavedPatientSummary = alerts.length > 0 || summary.length > 0;
   const patientAgeDisplay = formatAgeFromIsoDob(patient.dob);
   const visitTypeDisplay =
     patient.visitType === 'new' ? 'New patient' : patient.visitType === 'follow_up' ? 'Follow-up' : null;
@@ -1242,90 +1234,128 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           </div>
         </div>
 
-        <div className="flex flex-col items-center md:items-end gap-2 w-full md:w-auto">
-          {status === AppStatus.UPLOADING ? (
-            <div className="w-48">
-              <div className="flex justify-between text-xs font-semibold text-teal-700 mb-1">
-                <span>Uploading...</span><span>{uploadProgress}%</span>
-              </div>
-              <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                <div className="bg-teal-500 h-2.5 rounded-full transition-all duration-300" style={{ width: `${uploadProgress}%` }}></div>
-              </div>
+        <PatientWorkspaceRecording
+          patientId={patient.id}
+          patientName={patient.name}
+          onError={(msg) => onToast(msg, 'error')}
+          onTranscriptionQueued={() => onToast('Transcription ready in Editor & Scribe.', 'success')}
+        >
+          {(recordingToolbar) => (
+            <div className="flex w-full flex-col items-stretch gap-2 md:w-auto md:items-end">
+              {status === AppStatus.UPLOADING ? (
+                <div className="w-full max-w-xs md:ml-auto">
+                  <div className="mb-1 flex justify-between text-xs font-semibold text-teal-700">
+                    <span>Uploading...</span>
+                    <span>{uploadProgress}%</span>
+                  </div>
+                  <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+                    <div className="h-2.5 rounded-full bg-teal-500 transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+                  {recordingToolbar}
+                  <button
+                    type="button"
+                    onClick={openUploadPicker}
+                    className="flex min-h-[44px] w-full shrink-0 items-center justify-center gap-2 rounded-lg bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-teal-600/20 transition-all hover:bg-teal-700 sm:w-auto"
+                  >
+                    <Upload className="h-4 w-4" /> Upload file
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={handleFileUpload}
+                    accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+                  />
+                </div>
+              )}
+              {uploadMessage && status !== AppStatus.UPLOADING && (
+                <div className="flex w-full items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-700 md:max-w-md">
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> {uploadMessage}
+                </div>
+              )}
             </div>
-          ) : (
-            <>
-              <button
-                onClick={openUploadPicker}
-                className="w-full md:w-auto flex justify-center items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-5 py-2.5 rounded-lg cursor-pointer transition-all shadow-md shadow-teal-600/20 text-sm font-semibold"
-              >
-                <Upload className="w-4 h-4" /> Upload File
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="hidden"
-                onChange={handleFileUpload}
-                accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
-              />
-            </>
           )}
-          {uploadMessage && status !== AppStatus.UPLOADING && (
-            <div className="w-full md:w-auto flex items-center gap-2 text-xs font-semibold text-teal-700 bg-teal-50 border border-teal-200 px-3 py-1.5 rounded-md">
-              <CheckCircle2 className="w-3.5 h-3.5" /> {uploadMessage}
-            </div>
-          )}
-        </div>
+        </PatientWorkspaceRecording>
       </div>
 
-      {/* Content — extra bottom padding on phones so scribe dock doesn’t cover tabs / files */}
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 md:p-8 pb-[max(6rem,calc(env(safe-area-inset-bottom)+10.5rem))] md:pb-8 bg-slate-50/50 overscroll-contain">
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain bg-slate-50/50 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:p-8 md:pb-8">
         <div className="max-w-6xl mx-auto">
-          {/* AI Panel */}
-          {hasAiContent && showAiPanel && (
-            <div className="mb-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">AI Insights</span>
-                <button onClick={() => setShowAiPanel(false)} className="text-xs font-medium text-slate-400 hover:text-slate-600 flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-slate-100">
-                  <X size={12} /> Hide
+          {/* Patient summary — generated only on demand */}
+          <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-bold text-slate-800">Patient summary</h2>
+                <p className="text-[11px] text-slate-500">Runs HALO on files in this patient&apos;s folder. Not generated until you tap Generate.</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {hasSavedPatientSummary && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAiPanel((v) => !v)}
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    {showAiPanel ? 'Hide' : 'Show'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void handleGeneratePatientSummary()}
+                  disabled={patientInsightLoading}
+                  className="rounded-lg bg-teal-600 px-3 py-1.5 text-[11px] font-bold text-white shadow-sm hover:bg-teal-700 disabled:opacity-50"
+                >
+                  {patientInsightLoading ? 'Working…' : hasSavedPatientSummary ? 'Refresh' : 'Generate'}
                 </button>
               </div>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <SmartSummary summary={summary} loading={status === AppStatus.LOADING} />
-                {alerts.length > 0 && <div><LabAlerts alerts={alerts} /></div>}
+            </div>
+            {(patientInsightLoading || (hasSavedPatientSummary && showAiPanel)) && (
+              <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <SmartSummary summary={summary} loading={patientInsightLoading} />
+                {alerts.length > 0 ? (
+                  <div>
+                    <LabAlerts alerts={alerts} />
+                  </div>
+                ) : null}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
-          {hasAiContent && !showAiPanel && (
-            <div className="mb-4">
-              <button onClick={() => setShowAiPanel(true)} className="text-xs font-medium text-teal-600 hover:text-teal-700 flex items-center gap-1.5 transition-colors px-3 py-1.5 rounded-lg bg-teal-50 hover:bg-teal-100 border border-teal-100">
-                Show HALO AI Insights
-              </button>
-            </div>
-          )}
-
-          {/* Tabs + persistent Email (any tab, when notes exist) */}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between border-b border-slate-200 mb-6">
-            <div className="flex gap-6 md:gap-8 overflow-x-auto min-w-0 pb-px [-webkit-overflow-scrolling:touch]">
-              <button type="button" onClick={() => setWorkspaceTab('overview')} className={`pb-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap shrink-0 ${activeTab === 'overview' ? 'border-teal-600 text-teal-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Active Workspace</button>
-              <button type="button" onClick={() => setWorkspaceTab('notes')} className={`pb-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap shrink-0 ${activeTab === 'notes' ? 'border-teal-600 text-teal-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Editor &amp; Scribe</button>
-              <button type="button" onClick={() => setWorkspaceTab('chat')} className={`pb-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide whitespace-nowrap flex items-center gap-1.5 shrink-0 ${activeTab === 'chat' ? 'border-teal-600 text-teal-800' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
-                <MessageCircle size={14} /> Ask HALO
-              </button>
-            </div>
+          <div className="mb-4 flex w-full border-b border-slate-200">
             <button
               type="button"
-              onClick={() => void openEmailFromToolbar()}
-              disabled={stickyEmailDisabled}
-              title={
-                !userEmail?.trim()
-                  ? 'Sign in with Google to enable email'
-                  : 'Email note, dictation, or patient chart details to your inbox'
-              }
-              className="shrink-0 flex items-center justify-center gap-2 min-h-[44px] px-4 py-2.5 rounded-xl text-sm font-semibold bg-slate-700 text-white hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed transition-all shadow-sm border border-slate-600/80 sm:mb-0.5"
+              onClick={() => setWorkspaceTab('overview')}
+              className={`min-h-[40px] flex-1 border-b-2 px-1 py-2 text-center text-[10px] font-bold uppercase leading-tight tracking-wide transition-colors sm:min-h-0 sm:px-2 sm:text-xs md:text-sm ${
+                activeTab === 'overview'
+                  ? 'border-teal-600 text-teal-800'
+                  : 'border-transparent text-slate-400 hover:text-slate-600'
+              }`}
             >
-              <Mail className="w-4 h-4 shrink-0" aria-hidden />
-              Email
+              Workspace
+            </button>
+            <button
+              type="button"
+              onClick={() => setWorkspaceTab('notes')}
+              className={`min-h-[40px] flex-1 border-b-2 px-1 py-2 text-center text-[10px] font-bold uppercase leading-tight tracking-wide transition-colors sm:min-h-0 sm:px-2 sm:text-xs md:text-sm ${
+                activeTab === 'notes'
+                  ? 'border-teal-600 text-teal-800'
+                  : 'border-transparent text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              Editor
+            </button>
+            <button
+              type="button"
+              onClick={() => setWorkspaceTab('chat')}
+              className={`flex min-h-[40px] flex-1 items-center justify-center gap-0.5 border-b-2 px-1 py-2 text-center text-[10px] font-bold uppercase leading-tight tracking-wide transition-colors sm:min-h-0 sm:gap-1 sm:px-2 sm:text-xs md:text-sm ${
+                activeTab === 'chat'
+                  ? 'border-teal-600 text-teal-800'
+                  : 'border-transparent text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              <MessageCircle className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5" strokeWidth={2.25} />
+              <span className="truncate">HALO</span>
             </button>
           </div>
 

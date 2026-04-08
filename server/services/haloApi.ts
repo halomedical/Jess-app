@@ -289,14 +289,19 @@ export async function generateNote(params: GenerateNoteParams): Promise<HaloNote
   }
 
   if (!res.ok) {
-    if (return_type === 'note' && (res.status === 502 || res.status >= 500)) {
+    // Halo may return 400/404 when template_id is unknown on the Python side or validation fails.
+    // Fall back to Gemini (and local DOCX) so Echo Report, Report, and Rooms Consult all stay usable.
+    const errBody = await res.text().catch(() => '');
+    if (errBody) {
+      const snip = errBody.length > 300 ? `${errBody.slice(0, 300)}…` : errBody;
+      console.warn(`[Halo] generate_note HTTP ${res.status}: ${snip}`);
+    }
+    if (return_type === 'note') {
       return noteFallback(`HTTP ${res.status}`);
     }
-    if (return_type === 'docx' && (res.status === 502 || res.status >= 500)) {
+    if (return_type === 'docx') {
       return docxFallback(`HTTP ${res.status}`);
     }
-    if (res.status === 400) throw new Error('Invalid request to Halo note generation.');
-    if (res.status === 502) throw new Error('Halo note service unavailable. Please try again.');
     throw new Error(`Halo generate_note error: ${res.status}`);
   }
 
@@ -305,6 +310,15 @@ export async function generateNote(params: GenerateNoteParams): Promise<HaloNote
     return buffer;
   }
 
-  const data = (await res.json()) as unknown;
-  return normalizeNotesResponse(data, params.template_id);
+  let data: unknown;
+  try {
+    data = (await res.json()) as unknown;
+  } catch {
+    return noteFallback('invalid JSON from Halo');
+  }
+  const notes = normalizeNotesResponse(data, params.template_id);
+  if (notes.length === 0) {
+    return noteFallback('empty or unparseable Halo response');
+  }
+  return notes;
 }

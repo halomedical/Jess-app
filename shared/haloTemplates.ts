@@ -61,6 +61,25 @@ Use exactly these ## sections in order (echo / cardiac ultrasound style):
 Use standard echo terminology; do not fabricate measurements.`,
 };
 
-export function getGeminiGuideForTemplate(templateId: string): string | undefined {
-  return HALO_TEMPLATE_GEMINI_GUIDES[templateId];
+/**
+ * When Halo/Python does not know a template_id, Gemini fallback still uses a clear structure
+ * instead of generic SOAP so Report / Echo / future IDs behave consistently.
+ */
+export const GENERIC_CLINICAL_FALLBACK_GUIDE = `
+Use exactly these ## sections in order (general clinical document):
+## Indication / clinical question
+## History and pertinent background
+## Examination / key findings (if dictated)
+## Investigations / results (if dictated)
+## Assessment / impression
+## Plan and recommendations
+
+Use concise clinical prose. Use "N/A" or "Not discussed" only when a section truly has no information in the dictation.`;
+
+/** Structured guide for Gemini fallback: known templates first, then generic clinical sections. */
+export function getGeminiGuideForTemplate(templateId: string): string {
+  return (
+    HALO_TEMPLATE_GEMINI_GUIDES[templateId] ??
+    GENERIC_CLINICAL_FALLBACK_GUIDE
+  );
 }

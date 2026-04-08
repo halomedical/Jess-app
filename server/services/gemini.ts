@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { config } from '../config';
 import { getGeminiGuideForTemplate } from '../../shared/haloTemplates';
-import { haloTemplateFallbackPrompt, soapNotePrompt } from '../utils/prompts';
+import { haloTemplateFallbackPrompt } from '../utils/prompts';
 import { createHash } from 'crypto';
 
 // Using gemini-flash-latest - this model has free tier access (15 RPM)
@@ -92,8 +92,8 @@ export async function generateText(prompt: string): Promise<string> {
 }
 
 /**
- * Fallback when Halo/Python generate_note is unavailable.
- * Uses per-template_id structure when known; otherwise SOAP.
+ * Fallback when Halo/Python generate_note is unavailable or returns an error.
+ * Uses per-template_id structure when known; otherwise a generic clinical section layout.
  */
 export async function generateClinicalNoteFromTranscript(
   transcript: string,
@@ -101,9 +101,7 @@ export async function generateClinicalNoteFromTranscript(
 ): Promise<string> {
   const normalized = (transcript ?? '').trim();
   const guide = getGeminiGuideForTemplate(templateId);
-  const prompt = guide
-    ? haloTemplateFallbackPrompt(normalized, templateId, guide)
-    : soapNotePrompt(normalized);
+  const prompt = haloTemplateFallbackPrompt(normalized, templateId, guide);
   const key = fallbackCacheKey(normalized, templateId);
   const now = Date.now();
 

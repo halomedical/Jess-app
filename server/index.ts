@@ -38,6 +38,15 @@ const aiLimiter = rateLimit({
   message: { error: 'AI rate limit reached. Please wait before trying again.' },
 });
 
+/** Note generation can fire several template requests at once; keep separate from /api/ai budget. */
+const haloLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 90,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Note generation rate limit reached. Please wait a minute and retry.' },
+});
+
 /** Scribes may finish many segments / patients in parallel; keep separate from general AI budget. */
 const transcribeLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -80,7 +89,7 @@ app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/drive', driveRoutes);
 app.use('/api/ai/transcribe', transcribeLimiter, transcribeRoutes);
 app.use('/api/ai', aiLimiter, aiRoutes);
-app.use('/api/halo', aiLimiter, haloRoutes);
+app.use('/api/halo', haloLimiter, haloRoutes);
 app.use('/api/request-template', requestTemplateRoutes);
 app.use('/api/email-note', emailNoteRoutes);
 app.use('/api/email-workspace-file', emailWorkspaceFileRoutes);

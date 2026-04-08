@@ -3,7 +3,7 @@ import type { UserSettings } from '../../../shared/types';
 import { HALO_TEMPLATE_OPTIONS, DEFAULT_HALO_TEMPLATE_ID } from '../../../shared/haloTemplates';
 import {
   X, Pencil, Save, User, Clock, Briefcase, MapPin, GraduationCap,
-  FileText, Upload, Check, AlertCircle, Send, Plus,
+  FileText, Upload, Check, AlertCircle, Send, Plus, Cloud,
 } from 'lucide-react';
 import { requestNewTemplate } from '../services/api';
 
@@ -204,6 +204,19 @@ export const SettingsModal: React.FC<Props> = ({
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Session Duration</p>
               <p className="text-sm font-mono font-bold text-slate-700">{elapsed}</p>
+            </div>
+          </div>
+
+          <div className="flex gap-3 rounded-xl border border-teal-100 bg-teal-50/90 px-4 py-3">
+            <Cloud size={18} className="text-teal-700 shrink-0 mt-0.5" aria-hidden />
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-teal-900 mb-1">Patient folders &amp; Google Drive</p>
+              <p className="text-xs text-slate-700 leading-relaxed">
+                All patient folders live under <span className="font-semibold">your signed-in Google account</span> in Drive (root folder{' '}
+                <span className="font-mono text-[11px] bg-white/90 px-1 rounded border border-teal-100/80">Halo_Patients</span>).
+                Someone else who logs in with <span className="font-semibold">their own</span> Google account only sees <span className="font-semibold">their</span> folders—nothing is merged or synced between different logins by design.
+                For a shared practice list today, use one shared Google account for HALO, or move/copy folders in Drive manually; automatic team sync would require a different backend.
+              </p>
             </div>
           </div>
 

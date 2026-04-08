@@ -36,25 +36,38 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
     );
   }
 
+  const raw = await res.text();
+
+  let data: unknown = null;
+  if (raw.trim()) {
+    try {
+      data = JSON.parse(raw) as unknown;
+    } catch {
+      console.error('[API] Non-JSON body (first 300 chars):', raw.slice(0, 300));
+      if (res.status === 401) {
+        window.location.href = '/';
+        throw new ApiError('Not authenticated', 401);
+      }
+      const hint =
+        res.status === 503 || res.status === 502
+          ? 'Service temporarily unavailable. If you are on free cloud hosting, the app may be waking from sleep—wait 30–60 seconds and try again. If it keeps happening, the backend may be overloaded.'
+          : 'The server sent a non-JSON response (often an HTML error page from a proxy or host). Check your network or try again in a moment.';
+      throw new ApiError(`${hint} (HTTP ${res.status})`, res.status);
+    }
+  }
+
   if (res.status === 401) {
     window.location.href = '/';
     throw new ApiError('Not authenticated', 401);
   }
 
-  let data: unknown;
-  try {
-    data = await res.json();
-  } catch {
-    const text = await res.text().catch(() => 'Unable to read response');
-    console.error('[API] Non-JSON response:', text);
-    throw new ApiError(
-      `Server returned a non-JSON response (${res.status}). Please try again.`,
-      res.status
-    );
-  }
-
   if (!res.ok) {
-    const message = (data as { error?: string }).error || `Request failed (${res.status})`;
+    const message =
+      (data && typeof data === 'object' && data !== null && 'error' in data && typeof (data as { error: unknown }).error === 'string')
+        ? (data as { error: string }).error
+        : res.status === 503 || res.status === 502
+          ? 'Service temporarily unavailable. Wait a moment and retry (host may be waking from idle).'
+          : `Request failed (${res.status})`;
     console.error('[API] Request failed:', message);
     throw new ApiError(message, res.status);
   }

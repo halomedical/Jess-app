@@ -75,6 +75,16 @@ export const App = () => {
     }
   }, []);
 
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  const selectPatientAndCloseMobile = useCallback(
+    (id: string | null) => {
+      selectPatient(id);
+      setMobileSidebarOpen(false);
+    },
+    [selectPatient]
+  );
+
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast({ message, type });
   }, []);
@@ -145,6 +155,7 @@ export const App = () => {
   const handleLogout = async () => {
     await logout();
     setIsSignedIn(false);
+    setMobileSidebarOpen(false);
     selectPatient(null);
   };
 
@@ -255,15 +266,6 @@ export const App = () => {
   }
 
   const activePatient = patients.find(p => p.id === selectedPatientId);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-
-  const selectPatientAndCloseMobile = useCallback(
-    (id: string | null) => {
-      selectPatient(id);
-      setMobileSidebarOpen(false);
-    },
-    [selectPatient]
-  );
 
   return (
     <RecordingSessionsProvider>

@@ -23,7 +23,7 @@ import {
 import {
   Upload, Calendar, Clock, CheckCircle2, ChevronLeft, Loader2,
   CloudUpload, Pencil, X, Trash2, FolderOpen, MessageCircle,
-  FolderPlus, ChevronRight, Mail, Phone, Hash, Menu,
+  FolderPlus, ChevronRight, Mail, Phone, Hash, Menu, Info, ChevronDown,
 } from 'lucide-react';
 import { SmartSummary } from '../features/smart-summary/SmartSummary';
 import { LabAlerts } from '../features/lab-alerts/LabAlerts';
@@ -198,7 +198,10 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [savingNoteIndex, setSavingNoteIndex] = useState<number | null>(null);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [showAiPanel, setShowAiPanel] = useState(true);
+  /** AI summary panel expanded — default collapsed to prioritise workspace/editor height */
+  const [showAiPanel, setShowAiPanel] = useState(false);
+  /** Mobile: full patient demographics behind Info toggle */
+  const [mobilePatientInfoOpen, setMobilePatientInfoOpen] = useState(false);
   /** User-triggered only — no automatic Gemini summary on folder open */
   const [patientInsightLoading, setPatientInsightLoading] = useState(false);
   /** After Drive workspace draft fetch finishes (avoids overwriting cloud with empty before first load). */
@@ -213,6 +216,10 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
 
   useEffect(() => {
     setActiveTab(readStoredWorkspaceTab(patient.id));
+  }, [patient.id]);
+
+  useEffect(() => {
+    setMobilePatientInfoOpen(false);
   }, [patient.id]);
 
   // Folder navigation state
@@ -1127,91 +1134,118 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const visitTypeDisplay =
     patient.visitType === 'new' ? 'New patient' : patient.visitType === 'follow_up' ? 'Follow-up' : null;
 
+  const demographicsChips = (
+    <>
+      {patient.folderNumber?.trim() ? (
+        <span className="flex min-w-0 items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5">
+          <Hash className="h-3 w-3 shrink-0 text-slate-500" />{' '}
+          <span className="truncate">#{patient.folderNumber.trim()}</span>
+        </span>
+      ) : null}
+      <span className="flex min-w-0 items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5">
+        <Calendar className="h-3 w-3 shrink-0 text-slate-500" /> <span className="truncate">{patient.dob}</span>
+      </span>
+      <span className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5">Age {patientAgeDisplay}</span>
+      <span className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5">{patient.sex || '—'}</span>
+      {patient.contactNumber?.trim() ? (
+        <span className="col-span-2 flex min-w-0 items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 sm:col-span-1">
+          <Phone className="h-3 w-3 shrink-0 text-slate-500" /> <span className="truncate">{patient.contactNumber.trim()}</span>
+        </span>
+      ) : null}
+      {patient.referringDoctor?.trim() ? (
+        <span className="col-span-2 flex min-w-0 items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 sm:col-span-2 md:col-auto">
+          <span className="truncate">Ref: {patient.referringDoctor.trim()}</span>
+        </span>
+      ) : null}
+      {visitTypeDisplay ? (
+        <span className="inline-flex items-center rounded bg-teal-100 px-1.5 py-0.5 font-bold text-teal-900">
+          {visitTypeDisplay === 'New patient' ? 'New' : 'F/U'}
+        </span>
+      ) : null}
+      {patient.visitDate?.trim() ? (
+        <span className="flex min-w-0 items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5">
+          <Calendar className="h-3 w-3 shrink-0 text-slate-500" /> <span className="truncate">{patient.visitDate.trim()}</span>
+        </span>
+      ) : null}
+      <span className="col-span-2 flex min-w-0 items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 sm:col-span-3 md:max-w-none">
+        <Clock className="h-3 w-3 shrink-0 text-slate-500" /> <span className="truncate">Last: {patient.lastVisit}</span>
+      </span>
+    </>
+  );
+
   return (
     <div className="flex flex-col h-full min-h-0 bg-white relative w-full max-w-[100vw]">
-      {/* Header */}
-      <div className="border-b border-slate-200 px-3 md:px-8 py-2 md:py-4 safe-pad-t flex flex-col md:flex-row md:justify-between md:items-start bg-white shadow-sm z-10 gap-2 md:gap-4 shrink-0">
-        <div className="flex items-start gap-1.5 md:gap-3 min-w-0 flex-1">
-          <div className="flex shrink-0 items-start gap-0.5 md:hidden">
-            {onOpenMobileNav ? (
-              <button
-                type="button"
-                onClick={onOpenMobileNav}
-                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-transparent text-teal-800 hover:bg-teal-50 hover:border-teal-200 transition-colors"
-                aria-label="Open patient menu"
-              >
-                <Menu className="h-5 w-5 shrink-0" strokeWidth={2.25} />
-              </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={onBack}
-              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-transparent text-teal-700 hover:text-teal-900 hover:bg-teal-50 hover:border-teal-200 transition-colors"
-              aria-label="Leave workspace"
-            >
-              <ChevronLeft className="h-5 w-5 shrink-0" />
-            </button>
-          </div>
-          <div className="group relative min-w-0 flex-1">
-            <div className="flex items-start gap-2 min-w-0">
-              <h1 className="text-lg sm:text-xl md:text-3xl font-bold text-slate-800 tracking-tight leading-tight break-words min-w-0 flex-1">{patient.name}</h1>
-              <button
-                type="button"
-                onClick={startEditPatient}
-                className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-2 min-h-[44px] min-w-[44px] shrink-0 text-slate-500 hover:text-teal-600 hover:bg-slate-100 rounded-xl"
-                aria-label="Edit patient details"
-              >
-                <Pencil size={18} />
-              </button>
+      {/* Header — mobile: sticky compact bar + optional demographics; md+: full header */}
+      <div className="shrink-0 border-b border-slate-200 bg-white shadow-sm z-10">
+        <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-md md:static md:z-auto md:bg-white md:backdrop-blur-none">
+          <div className="safe-pad-t flex flex-col gap-2 px-3 py-1.5 md:flex-row md:items-start md:justify-between md:gap-4 md:px-8 md:py-4">
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 md:items-start md:gap-3">
+              <div className="flex shrink-0 items-center gap-0.5 md:hidden">
+                {onOpenMobileNav ? (
+                  <button
+                    type="button"
+                    onClick={onOpenMobileNav}
+                    className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg border border-transparent text-teal-800 hover:bg-teal-50 hover:border-teal-200 transition-colors"
+                    aria-label="Open patient menu"
+                  >
+                    <Menu className="h-5 w-5 shrink-0" strokeWidth={2.25} />
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg border border-transparent text-teal-700 hover:bg-teal-50 hover:border-teal-200 transition-colors"
+                  aria-label="Leave workspace"
+                >
+                  <ChevronLeft className="h-5 w-5 shrink-0" />
+                </button>
+              </div>
+              <div className="group relative min-w-0 flex-1">
+                <div className="flex min-w-0 items-center gap-1 md:items-start md:gap-2">
+                  <h1 className="min-w-0 flex-1 truncate text-base font-bold leading-tight tracking-tight text-slate-800 md:whitespace-normal md:break-words md:text-2xl lg:text-3xl">
+                    {patient.name}
+                  </h1>
+                  <button
+                    type="button"
+                    onClick={() => setMobilePatientInfoOpen((v) => !v)}
+                    className="flex min-h-[40px] min-w-[40px] shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-teal-700 md:hidden"
+                    aria-expanded={mobilePatientInfoOpen}
+                    aria-label={mobilePatientInfoOpen ? 'Hide patient details' : 'Patient details'}
+                  >
+                    <Info className="sr-only" />
+                    <ChevronDown
+                      className={`h-5 w-5 shrink-0 transition-transform ${mobilePatientInfoOpen ? 'rotate-180' : ''}`}
+                      strokeWidth={2.25}
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={startEditPatient}
+                    className="shrink-0 rounded-lg p-2 min-h-[40px] min-w-[40px] text-slate-500 transition-opacity hover:bg-slate-100 hover:text-teal-600 md:min-h-[44px] md:min-w-[44px] md:rounded-xl md:opacity-0 md:group-hover:opacity-100"
+                    aria-label="Edit patient details"
+                  >
+                    <Pencil size={18} />
+                  </button>
+                </div>
+                {mobilePatientInfoOpen ? (
+                  <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1.5 border-t border-slate-100 pt-2 text-[11px] font-medium text-slate-600 md:hidden">
+                    {demographicsChips}
+                  </div>
+                ) : null}
+                <div className="mt-1.5 hidden text-[11px] font-medium text-slate-600 md:flex md:flex-wrap md:items-center md:gap-x-2 md:gap-y-1.5">
+                  {demographicsChips}
+                </div>
+              </div>
             </div>
-            <div className="mt-1.5 grid grid-cols-2 gap-x-2 gap-y-1.5 sm:grid-cols-3 md:flex md:flex-wrap md:items-center text-[11px] text-slate-600 font-medium">
-              {patient.folderNumber?.trim() ? (
-                <span className="flex min-w-0 items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5">
-                  <Hash className="h-3 w-3 shrink-0 text-slate-500" /> <span className="truncate">#{patient.folderNumber.trim()}</span>
-                </span>
-              ) : null}
-              <span className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 min-w-0">
-                <Calendar className="h-3 w-3 shrink-0 text-slate-500" /> <span className="truncate">{patient.dob}</span>
-              </span>
-              <span className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5">
-                Age {patientAgeDisplay}
-              </span>
-              <span className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5">{patient.sex || '—'}</span>
-              {patient.contactNumber?.trim() ? (
-                <span className="flex min-w-0 items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 col-span-2 sm:col-span-1">
-                  <Phone className="h-3 w-3 shrink-0 text-slate-500" /> <span className="truncate">{patient.contactNumber.trim()}</span>
-                </span>
-              ) : null}
-              {patient.referringDoctor?.trim() ? (
-                <span className="col-span-2 flex min-w-0 items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 sm:col-span-2 md:col-auto">
-                  <span className="truncate">Ref: {patient.referringDoctor.trim()}</span>
-                </span>
-              ) : null}
-              {visitTypeDisplay ? (
-                <span className="inline-flex items-center rounded bg-teal-100 px-1.5 py-0.5 font-bold text-teal-900">
-                  {visitTypeDisplay === 'New patient' ? 'New' : 'F/U'}
-                </span>
-              ) : null}
-              {patient.visitDate?.trim() ? (
-                <span className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 min-w-0">
-                  <Calendar className="h-3 w-3 shrink-0 text-slate-500" /> <span className="truncate">{patient.visitDate.trim()}</span>
-                </span>
-              ) : null}
-              <span className="flex min-w-0 items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 col-span-2 sm:col-span-3 md:max-w-none">
-                <Clock className="h-3 w-3 shrink-0 text-slate-500" /> <span className="truncate">Last: {patient.lastVisit}</span>
-              </span>
-            </div>
-          </div>
-        </div>
 
-        <PatientWorkspaceRecording
-          patientId={patient.id}
-          patientName={patient.name}
-          onError={(msg) => onToast(msg, 'error')}
-          onTranscriptionQueued={() => onToast('Transcription ready in Editor & Scribe.', 'success')}
-          onUploadClick={openUploadPicker}
-          uploadDisabled={status === AppStatus.UPLOADING}
-        >
+            <PatientWorkspaceRecording
+              patientId={patient.id}
+              patientName={patient.name}
+              onError={(msg) => onToast(msg, 'error')}
+              onTranscriptionQueued={() => onToast('Transcription ready in Editor & Scribe.', 'success')}
+              onUploadClick={openUploadPicker}
+              uploadDisabled={status === AppStatus.UPLOADING}
+            >
           {(recordingToolbar) => (
             <div className="flex w-full flex-col items-stretch gap-2 md:w-auto md:items-end">
               <input
@@ -1253,58 +1287,100 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             </div>
           )}
         </PatientWorkspaceRecording>
+          </div>
+        </div>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-50/50">
-        <div className="shrink-0 px-3 pt-3 md:px-8 md:pt-6">
+        <div
+          className={`shrink-0 px-2 pt-2 md:block md:px-8 md:pt-6 ${activeTab === 'notes' ? 'hidden md:block' : ''}`}
+        >
           <div className="mx-auto max-w-6xl">
-          {/* Patient summary — generated only on demand */}
-          <div className="mb-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm md:mb-5 md:p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0">
-                <h2 className="text-sm font-bold text-slate-800">Patient summary</h2>
-                <p className="text-[11px] text-slate-500 line-clamp-2 md:line-clamp-none">HALO uses files in this folder. Tap Generate when you want a summary.</p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {hasSavedPatientSummary && (
+            {/* Mobile: compact summary strip */}
+            <div className="mb-2 md:hidden">
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm">
+                <span className="text-[11px] font-bold text-slate-800">Summary</span>
+                <div className="flex items-center gap-1">
+                  {hasSavedPatientSummary ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowAiPanel((v) => !v)}
+                      className="rounded-md border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-600"
+                    >
+                      {showAiPanel ? 'Hide' : 'Show'}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
-                    onClick={() => setShowAiPanel((v) => !v)}
-                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                    onClick={() => void handleGeneratePatientSummary()}
+                    disabled={patientInsightLoading}
+                    title="HALO uses files in this folder. Generate on demand."
+                    className="rounded-md bg-teal-600 px-2.5 py-1 text-[10px] font-bold text-white disabled:opacity-50"
                   >
-                    {showAiPanel ? 'Hide' : 'Show'}
+                    {patientInsightLoading ? '…' : hasSavedPatientSummary ? 'Refresh' : 'Generate'}
                   </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => void handleGeneratePatientSummary()}
-                  disabled={patientInsightLoading}
-                  className="rounded-lg bg-teal-600 px-3 py-1.5 text-[11px] font-bold text-white shadow-sm hover:bg-teal-700 disabled:opacity-50"
-                >
-                  {patientInsightLoading ? 'Working…' : hasSavedPatientSummary ? 'Refresh' : 'Generate'}
-                </button>
+                </div>
               </div>
+              {(patientInsightLoading || (hasSavedPatientSummary && showAiPanel)) && (
+                <div className="mt-2 grid grid-cols-1 gap-3">
+                  <SmartSummary summary={summary} loading={patientInsightLoading} />
+                  {alerts.length > 0 ? (
+                    <div>
+                      <LabAlerts alerts={alerts} />
+                    </div>
+                  ) : null}
+                </div>
+              )}
             </div>
-            {(patientInsightLoading || (hasSavedPatientSummary && showAiPanel)) && (
-              <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <SmartSummary summary={summary} loading={patientInsightLoading} />
-                {alerts.length > 0 ? (
-                  <div>
-                    <LabAlerts alerts={alerts} />
-                  </div>
-                ) : null}
+            {/* Desktop: patient summary card */}
+            <div className="mb-3 hidden rounded-xl border border-slate-200 bg-white p-3 shadow-sm md:mb-5 md:block md:p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <h2 className="text-sm font-bold text-slate-800">Patient summary</h2>
+                  <p className="text-[11px] text-slate-500">
+                    HALO uses files in this folder. Tap Generate when you want a summary.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {hasSavedPatientSummary && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAiPanel((v) => !v)}
+                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                    >
+                      {showAiPanel ? 'Hide' : 'Show'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void handleGeneratePatientSummary()}
+                    disabled={patientInsightLoading}
+                    className="rounded-lg bg-teal-600 px-3 py-1.5 text-[11px] font-bold text-white shadow-sm hover:bg-teal-700 disabled:opacity-50"
+                  >
+                    {patientInsightLoading ? 'Working…' : hasSavedPatientSummary ? 'Refresh' : 'Generate'}
+                  </button>
+                </div>
               </div>
-            )}
-          </div>
+              {(patientInsightLoading || (hasSavedPatientSummary && showAiPanel)) && (
+                <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  <SmartSummary summary={summary} loading={patientInsightLoading} />
+                  {alerts.length > 0 ? (
+                    <div>
+                      <LabAlerts alerts={alerts} />
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className="shrink-0 border-b border-slate-200 px-3 md:px-8">
-          <div className="mx-auto max-w-6xl flex w-full">
+        <div className="shrink-0 border-b border-slate-200 px-2 md:px-8">
+          <div className="mx-auto flex w-full max-w-6xl">
             <button
               type="button"
               onClick={() => setWorkspaceTab('overview')}
-              className={`min-h-[36px] flex-1 border-b-2 px-0.5 py-1.5 text-center text-[10px] font-bold uppercase leading-tight tracking-wide transition-colors sm:px-2 sm:text-xs ${
+              className={`min-h-[30px] flex-1 border-b-2 px-0.5 py-1 text-center text-[10px] font-bold uppercase leading-tight tracking-wide transition-colors md:min-h-[36px] md:py-1.5 sm:px-2 sm:text-xs ${
                 activeTab === 'overview'
                   ? 'border-teal-600 text-teal-800'
                   : 'border-transparent text-slate-400 hover:text-slate-600'
@@ -1315,7 +1391,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             <button
               type="button"
               onClick={() => setWorkspaceTab('notes')}
-              className={`min-h-[36px] flex-1 border-b-2 px-0.5 py-1.5 text-center text-[10px] font-bold uppercase leading-tight tracking-wide transition-colors sm:px-2 sm:text-xs ${
+              className={`min-h-[30px] flex-1 border-b-2 px-0.5 py-1 text-center text-[10px] font-bold uppercase leading-tight tracking-wide transition-colors md:min-h-[36px] md:py-1.5 sm:px-2 sm:text-xs ${
                 activeTab === 'notes'
                   ? 'border-teal-600 text-teal-800'
                   : 'border-transparent text-slate-400 hover:text-slate-600'
@@ -1326,7 +1402,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             <button
               type="button"
               onClick={() => setWorkspaceTab('chat')}
-              className={`flex min-h-[36px] flex-1 items-center justify-center gap-0.5 border-b-2 px-0.5 py-1.5 text-center text-[10px] font-bold uppercase leading-tight tracking-wide transition-colors sm:gap-1 sm:px-2 sm:text-xs ${
+              className={`flex min-h-[30px] flex-1 items-center justify-center gap-0.5 border-b-2 px-0.5 py-1 text-center text-[10px] font-bold uppercase leading-tight tracking-wide transition-colors md:min-h-[36px] md:py-1.5 sm:gap-1 sm:px-2 sm:text-xs ${
                 activeTab === 'chat'
                   ? 'border-teal-600 text-teal-800'
                   : 'border-transparent text-slate-400 hover:text-slate-600'
@@ -1339,7 +1415,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         </div>
 
         <div
-          className={`min-h-0 flex-1 overflow-x-hidden overscroll-contain px-3 md:px-8 ${
+          className={`min-h-0 flex-1 overflow-x-hidden overscroll-contain px-2 md:px-8 ${
             activeTab === 'overview' ? 'overflow-y-auto' : 'overflow-hidden'
           } pb-[max(5.75rem,env(safe-area-inset-bottom)+4.75rem)] md:overflow-y-auto md:pb-8`}
         >
@@ -1373,15 +1449,16 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           ) : activeTab === 'notes' ? (
             pendingTranscript ? (
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200/80 bg-white md:my-0">
-                <div className="shrink-0 border-b border-slate-100 px-3 py-2.5 sm:px-4">
-                  <h3 className="text-xs font-bold text-slate-800">Generate {WORKSPACE_TEMPLATE_LABEL}</h3>
-                  <p className="mt-0.5 text-[11px] text-slate-500">Dictation becomes a Rooms Consult note.</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                <div className="shrink-0 border-b border-slate-100 px-2 py-2 sm:px-4 md:py-2.5">
+                  <h3 className="text-[11px] font-bold text-slate-800 md:text-xs">Generate {WORKSPACE_TEMPLATE_LABEL}</h3>
+                  <p className="mt-0.5 text-[10px] text-slate-500 md:hidden">From dictation.</p>
+                  <p className="mt-0.5 hidden text-[11px] text-slate-500 md:block">Dictation becomes a Rooms Consult note.</p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5 md:mt-2 md:gap-2">
                     <button
                       type="button"
                       onClick={() => void handleGenerateFromTemplates()}
                       disabled={status === AppStatus.LOADING}
-                      className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-teal-700 disabled:opacity-50"
+                      className="rounded-md bg-teal-600 px-2.5 py-1 text-[10px] font-bold text-white shadow-sm hover:bg-teal-700 disabled:opacity-50 md:rounded-lg md:px-3 md:py-1.5 md:text-xs"
                     >
                       {status === AppStatus.LOADING ? 'Generating…' : 'Generate note'}
                     </button>
@@ -1391,7 +1468,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                         setPendingTranscript(null);
                         pendingTranscriptRef.current = null;
                       }}
-                      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600"
+                      className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-medium text-slate-600 md:rounded-lg md:px-3 md:py-1.5 md:text-xs"
                     >
                       Cancel
                     </button>
@@ -1419,8 +1496,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                     </button>
                   </div>
                 </div>
-                <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/80 p-3">
-                  <div className="mb-3 rounded-lg border border-teal-100 bg-teal-50/80 px-3 py-2 text-[11px] text-slate-800">
+                <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/80 p-2 md:p-3">
+                  <div className="mb-2 rounded-lg border border-teal-100 bg-teal-50/80 px-2 py-1.5 text-[10px] text-slate-800 md:mb-3 md:px-3 md:py-2 md:text-[11px]">
                     <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-teal-800">Chart (included in note &amp; email)</p>
                     <p><span className="font-semibold text-slate-700">Name:</span> {patient.name}</p>
                     <p><span className="font-semibold text-slate-700">DOB:</span> {patient.dob}</p>

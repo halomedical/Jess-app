@@ -13,7 +13,7 @@ export const SignInBranding: React.FC<{ className?: string }> = ({ className = '
     />
     <svg
       viewBox="0 0 360 100"
-      className="w-full max-w-[300px] h-auto mx-auto text-slate-900"
+      className="w-full max-w-[300px] h-auto mx-auto text-[#1F2937]"
       role="img"
       aria-label="Dr Jess John"
     >
@@ -45,7 +45,7 @@ export const SignInBranding: React.FC<{ className?: string }> = ({ className = '
         fontSize="10"
         fontWeight="700"
         letterSpacing="0.35em"
-        fill="#0f766e"
+        fill="#4FB6B2"
       >
         CARDIOLOGIST
       </text>

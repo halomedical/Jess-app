@@ -19,8 +19,8 @@ export const EcgRhythmStrip: React.FC<Props> = ({ variant = 'sidebar', className
 
   const colorWrap =
     variant === 'sidebar'
-      ? 'text-teal-400/65'
-      : 'text-teal-600/35';
+      ? 'text-[#4FB6B2]/45'
+      : 'text-[#4FB6B2]/35';
 
   return (
     <div
@@ -29,13 +29,13 @@ export const EcgRhythmStrip: React.FC<Props> = ({ variant = 'sidebar', className
     >
       {variant === 'sidebar' && (
         <div
-          className="absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-teal-950 to-transparent z-[1]"
+          className="absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-white to-transparent z-[1]"
           aria-hidden
         />
       )}
       {variant === 'sidebar' && (
         <div
-          className="absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-[#0a1f1c] to-transparent z-[1]"
+          className="absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-[#F7F9FB] to-transparent z-[1]"
           aria-hidden
         />
       )}

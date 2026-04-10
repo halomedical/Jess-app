@@ -73,8 +73,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   }, [activeNote?.content, activeNote?.fields]);
 
   const emptyShell = (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200/80 bg-white">
-      <div className="flex flex-1 items-center justify-center px-4 text-slate-400">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[10px] border border-[#E5E7EB] bg-white md:rounded-lg md:border-[#E5E7EB]/90">
+      <div className="flex flex-1 items-center justify-center px-4 text-[#9CA3AF]">
         <p className="text-center text-xs">No notes yet. Dictate from the workspace, then generate.</p>
       </div>
     </div>
@@ -85,34 +85,38 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200/80 bg-white">
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-2 py-1.5 sm:px-3">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-          <span className="hidden text-[10px] font-bold uppercase tracking-wide text-slate-400 sm:inline">Note</span>
-          <div className="inline-flex rounded-md border border-slate-200 bg-slate-50 p-0.5">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[10px] border border-[#E5E7EB] bg-white md:rounded-lg md:border-[#E5E7EB]/90">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-1 border-b border-[#E5E7EB] px-1.5 py-1 md:gap-2 md:border-[#F1F5F9] md:px-2 md:py-1.5 sm:px-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 md:gap-2">
+          <span className="hidden text-[10px] font-bold uppercase tracking-wide text-[#9CA3AF] sm:inline">Note</span>
+          <div className="inline-flex rounded-[10px] border border-[#E5E7EB] bg-[#F1F5F9] p-0.5 md:rounded-md md:border-[#E5E7EB] md:bg-[#F1F5F9]">
             <button
               type="button"
               onClick={() => setViewMode('preview')}
-              className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-semibold transition-colors ${
-                viewMode === 'preview' ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-600 hover:text-slate-800'
+              className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold transition-colors md:gap-1 md:px-2 md:py-1 md:text-[11px] ${
+                viewMode === 'preview'
+                  ? 'bg-white text-[#1F2937] shadow-[0_1px_2px_rgba(15,23,42,0.06)] md:text-[#4FB6B2]'
+                  : 'text-[#6B7280] hover:text-[#1F2937] md:text-[#6B7280]'
               }`}
             >
-              <Eye className="h-3.5 w-3.5" strokeWidth={2.25} />
+              <Eye className="h-3 w-3 md:h-3.5 md:w-3.5" strokeWidth={2.25} />
               Preview
             </button>
             <button
               type="button"
               onClick={() => setViewMode('edit')}
-              className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-semibold transition-colors ${
-                viewMode === 'edit' ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-600 hover:text-slate-800'
+              className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold transition-colors md:gap-1 md:px-2 md:py-1 md:text-[11px] ${
+                viewMode === 'edit'
+                  ? 'bg-white text-[#1F2937] shadow-[0_1px_2px_rgba(15,23,42,0.06)] md:text-[#4FB6B2]'
+                  : 'text-[#6B7280] hover:text-[#1F2937] md:text-[#6B7280]'
               }`}
             >
-              <Pencil className="h-3.5 w-3.5" strokeWidth={2.25} />
+              <Pencil className="h-3 w-3 md:h-3.5 md:w-3.5" strokeWidth={2.25} />
               Edit
             </button>
           </div>
         </div>
-        <div className="flex max-w-full gap-1 overflow-x-auto [-webkit-overflow-scrolling:touch] pb-0.5">
+        <div className="flex max-w-full gap-0.5 overflow-x-auto [-webkit-overflow-scrolling:touch] pb-0.5 md:gap-1">
           {notes.map((note, i) => {
             const dateLabel = tabDateLabelForNote(note);
             return (
@@ -120,12 +124,19 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 key={note.noteId}
                 type="button"
                 onClick={() => onActiveIndexChange(i)}
-                className={`shrink-0 rounded-md px-2 py-1 text-left text-[10px] font-medium transition-all ${
-                  i === activeIndex ? 'bg-teal-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                title={`${note.title || `Note ${i + 1}`} · ${dateLabel}`}
+                className={`shrink-0 rounded-md px-1.5 py-0.5 text-left text-[9px] font-medium transition-all md:rounded-md md:px-2 md:py-1 md:text-[10px] ${
+                  i === activeIndex
+                    ? 'bg-[#4FB6B2] text-white shadow-[0_1px_2px_rgba(15,23,42,0.08)] md:bg-[#4FB6B2] md:shadow-[0_1px_2px_rgba(0,0,0,0.05)]'
+                    : 'bg-[#F1F5F9] text-[#6B7280] hover:bg-[#E5E7EB] md:bg-[#F1F5F9] md:text-[#6B7280] md:hover:bg-[#E5E7EB]'
                 }`}
               >
-                <span className="block max-w-[7rem] truncate leading-tight sm:max-w-[10rem]">{note.title || `Note ${i + 1}`}</span>
-                <span className={`mt-0.5 block text-[9px] font-normal ${i === activeIndex ? 'text-teal-100' : 'text-slate-500'}`}>
+                <span className="block max-w-[6.5rem] truncate leading-tight sm:max-w-[10rem]">{note.title || `Note ${i + 1}`}</span>
+                <span
+                  className={`mt-0.5 hidden text-[9px] font-normal md:block ${
+                    i === activeIndex ? 'text-white/90' : 'text-[#6B7280]'
+                  }`}
+                >
                   {dateLabel}
                 </span>
               </button>
@@ -135,27 +146,27 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       </div>
 
       {viewMode === 'preview' ? (
-        <div className="min-h-0 flex-1 overflow-y-auto bg-slate-100/60 px-2 py-2 sm:px-3">
-          <p className="mb-2 text-center text-[10px] font-medium uppercase tracking-wide text-slate-400">Document preview</p>
-          <article className="mx-auto max-w-[48rem] rounded-sm border border-slate-200/90 bg-white px-4 py-4 shadow-sm sm:px-8 sm:py-6 font-serif text-[15px] leading-relaxed text-slate-800">
-            <h1 className="mb-4 border-b border-slate-200 pb-2 font-sans text-lg font-bold tracking-tight text-slate-900 sm:text-xl">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-[#F7F9FB] px-1.5 py-1 md:bg-[#F7F9FB] md:px-2 md:py-2 sm:px-3">
+          <p className="sr-only">Document preview — matches print or DOCX export.</p>
+          <article className="mx-auto max-w-[48rem] rounded-[10px] border border-[#E5E7EB] bg-white px-3 py-3 font-serif text-[14px] leading-relaxed text-[#1F2937] shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:px-8 sm:py-6 md:rounded-sm md:px-8 md:py-6 md:text-[15px] md:text-[#1F2937] md:shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+            <h1 className="mb-2 border-b border-[#E5E7EB] pb-1.5 font-sans text-base font-bold tracking-tight text-[#1F2937] md:mb-4 md:pb-2 md:text-lg md:text-[#1F2937] sm:text-xl">
               {activeNote.title || 'Untitled note'}
             </h1>
             {fields.length === 0 ? (
-              <p className="font-sans text-sm italic text-slate-500">No structured content. Switch to Edit to add text.</p>
+              <p className="font-sans text-sm italic text-[#9CA3AF] md:text-[#6B7280]">No structured content. Switch to Edit to add text.</p>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-3 md:space-y-4">
                 {fields.map((field, idx) => (
-                  <section key={idx} className="border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                  <section key={idx} className="border-b border-[#E5E7EB] pb-2 last:border-0 last:pb-0 md:border-[#F1F5F9] md:pb-3">
                     {field.label ? (
                       <>
-                        <h3 className="mb-1 font-sans text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                        <h3 className="mb-0.5 font-sans text-[10px] font-bold uppercase tracking-wider text-[#9CA3AF] md:mb-1 md:text-[11px] md:text-[#6B7280]">
                           {field.label}
                         </h3>
-                        <div className="whitespace-pre-wrap text-slate-800">{field.body || '—'}</div>
+                        <div className="whitespace-pre-wrap text-[#1F2937] md:text-[#1F2937]">{field.body || '—'}</div>
                       </>
                     ) : (
-                      <div className="whitespace-pre-wrap text-slate-800">{field.body}</div>
+                      <div className="whitespace-pre-wrap text-[#1F2937] md:text-[#1F2937]">{field.body}</div>
                     )}
                   </section>
                 ))}
@@ -170,29 +181,29 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             value={activeNote.title}
             onChange={(e) => onNoteChange(activeIndex, { title: e.target.value })}
             placeholder="Note title"
-            className="shrink-0 border-b border-slate-100 px-3 py-2 text-sm font-semibold text-slate-800 outline-none focus:bg-slate-50/80"
+            className="shrink-0 border-b border-[#E5E7EB] px-2 py-1.5 text-sm font-semibold text-[#1F2937] outline-none focus:bg-[#F7F9FB] md:border-[#F1F5F9] md:px-3 md:py-2 md:text-[#1F2937] md:focus:bg-[#F7F9FB]"
           />
           <textarea
             value={activeNote.content}
             onChange={(e) => onNoteChange(activeIndex, { content: e.target.value })}
             placeholder="Note content..."
-            className="min-h-0 flex-1 resize-none border-0 p-3 text-sm leading-relaxed text-slate-700 outline-none focus:bg-slate-50/50"
+            className="min-h-0 flex-1 resize-none border-0 p-2 text-sm leading-relaxed text-[#1F2937] outline-none focus:bg-[#F7F9FB] md:p-3 md:text-[#1F2937] md:focus:bg-[#F7F9FB]"
           />
         </div>
       )}
 
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/90 px-2 py-2 sm:px-3">
-        <div className="flex flex-wrap items-center gap-1.5">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-1 border-t border-[#E5E7EB] bg-[#F1F5F9] px-1.5 py-1 md:gap-2 md:border-[#F1F5F9] md:bg-[#F7F9FB] md:px-2 md:py-2 sm:px-3">
+        <div className="flex flex-wrap items-center gap-1 md:gap-1.5">
           <button
             type="button"
             onClick={() => onSaveAsDocx(activeIndex)}
             disabled={busy || docxBusy || !notePlain.trim()}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-teal-600 px-2.5 py-1.5 text-[11px] font-bold text-white shadow-sm hover:bg-teal-700 disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-[10px] bg-[#4FB6B2] px-2 py-1 text-[10px] font-bold text-white shadow-[0_1px_2px_rgba(15,23,42,0.08)] hover:bg-[#3FA6A2] disabled:opacity-50 md:rounded-lg md:px-2.5 md:py-1.5 md:text-[11px] md:shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
           >
             {savingNoteIndex === activeIndex || (docxBusy && savingNoteIndex === activeIndex) ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <Loader2 className="h-3 w-3 animate-spin md:h-3.5 md:w-3.5" />
             ) : (
-              <FileDown className="h-3.5 w-3.5" />
+              <FileDown className="h-3 w-3 md:h-3.5 md:w-3.5" />
             )}
             DOCX
           </button>
@@ -202,24 +213,26 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             disabled={busy}
             title={notePlain.trim() ? 'Email this note' : 'Email includes chart if note is empty'}
             aria-label="Email note"
-            className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-[10px] border border-[#E5E7EB] bg-white text-[#6B7280] hover:bg-[#F7F9FB] disabled:opacity-50 md:rounded-lg md:border-[#E5E7EB] md:hover:bg-[#F1F5F9]"
           >
-            <Mail className="h-4 w-4" aria-hidden />
+            <Mail className="h-3.5 w-3.5 md:h-4 md:w-4" aria-hidden />
           </button>
           {notes.length > 1 && (
             <button
               type="button"
               onClick={onSaveAll}
               disabled={busy || docxBusy}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-teal-800 px-2.5 py-1.5 text-[11px] font-bold text-white hover:bg-teal-900 disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-[10px] border border-[#E5E7EB] bg-white px-2 py-1 text-[10px] font-bold text-[#1F2937] hover:bg-[#F1F5F9] disabled:opacity-50 md:rounded-lg md:px-2.5 md:py-1.5 md:text-[11px]"
             >
-              {docxBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              {docxBusy ? <Loader2 className="h-3 w-3 animate-spin md:h-3.5 md:w-3.5" /> : <Save className="h-3 w-3 md:h-3.5 md:w-3.5" />}
               All
             </button>
           )}
         </div>
         {activeNote.lastSavedAt && (
-          <span className="text-[10px] text-slate-400">Saved {formatDocumentDateDisplay(new Date(activeNote.lastSavedAt))}</span>
+          <span className="text-[9px] text-[#9CA3AF] md:text-[10px] md:text-[#9CA3AF]">
+            Saved {formatDocumentDateDisplay(new Date(activeNote.lastSavedAt))}
+          </span>
         )}
       </div>
     </div>

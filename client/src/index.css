@@ -35,22 +35,22 @@ body {
   }
 }
 
-/* Dark teal sidebar: scrollbar matches panel (mobile + desktop) */
-.sidebar-dark-scroll {
+/* Light sidebar scrollbar */
+.sidebar-light-scroll {
   scrollbar-width: thin;
-  scrollbar-color: rgb(45 115 110 / 0.85) rgb(15 80 75 / 0.35);
+  scrollbar-color: rgb(79 182 178 / 0.45) rgb(241 245 249 / 0.9);
 }
-.sidebar-dark-scroll::-webkit-scrollbar {
+.sidebar-light-scroll::-webkit-scrollbar {
   width: 7px;
 }
-.sidebar-dark-scroll::-webkit-scrollbar-track {
-  background: rgb(15 80 75 / 0.25);
+.sidebar-light-scroll::-webkit-scrollbar-track {
+  background: rgb(241 245 249 / 0.6);
   border-radius: 4px;
 }
-.sidebar-dark-scroll::-webkit-scrollbar-thumb {
-  background: rgb(45 115 110 / 0.75);
+.sidebar-light-scroll::-webkit-scrollbar-thumb {
+  background: rgb(79 182 178 / 0.35);
   border-radius: 4px;
 }
-.sidebar-dark-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgb(56 178 172 / 0.85);
+.sidebar-light-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgb(79 182 178 / 0.55);
 }

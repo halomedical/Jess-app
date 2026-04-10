@@ -13,17 +13,17 @@ export const LabAlerts: React.FC<Props> = ({ alerts }) => {
     <div className="mb-6">
       <div className="flex items-center gap-2 mb-2">
         <Activity className="w-4 h-4 text-amber-600" />
-        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Trend Spotter: New Alerts</h4>
+        <h4 className="text-xs font-bold uppercase tracking-wider text-[#6B7280]">Trend Spotter: New Alerts</h4>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {alerts.map((alert, idx) => (
-          <div key={idx} className="bg-white border-l-4 border-amber-500 shadow-sm rounded-r-md p-3 flex items-start gap-3">
+          <div key={idx} className="bg-white border border-[#E5E7EB] border-l-4 border-l-amber-500 shadow-[0_1px_2px_rgba(0,0,0,0.05)] rounded-[10px] p-3 flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="font-medium text-slate-900 text-sm">
+              <p className="font-medium text-[#1F2937] text-sm">
                 {alert.parameter}: <span className="text-amber-700 font-bold">{alert.value}</span>
               </p>
-              <p className="text-xs text-slate-500 mt-1">{alert.context}</p>
+              <p className="text-xs text-[#6B7280] mt-1">{alert.context}</p>
             </div>
           </div>
         ))}

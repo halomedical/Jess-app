@@ -30,18 +30,18 @@ export const BackgroundTaskChip: React.FC<Props> = ({
 
   return (
     <div
-      className="pointer-events-auto fixed bottom-[max(5.5rem,env(safe-area-inset-bottom)+4.5rem)] right-3 z-[80] flex max-w-[min(18rem,calc(100vw-1.5rem))] items-center gap-2 rounded-xl border border-slate-200/90 bg-white/95 px-3 py-2 text-xs shadow-lg backdrop-blur-sm md:bottom-6 md:right-6"
+      className="pointer-events-auto fixed bottom-[max(5.5rem,env(safe-area-inset-bottom)+4.5rem)] right-3 z-[80] flex max-w-[min(18rem,calc(100vw-1.5rem))] items-center gap-2 rounded-[10px] border border-[#E5E7EB] bg-white px-3 py-2 text-xs shadow-[0_1px_2px_rgba(0,0,0,0.05)] md:bottom-6 md:right-6"
       role="status"
     >
-      {phase === 'running' && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-teal-600" aria-hidden />}
-      {phase === 'success' && <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />}
+      {phase === 'running' && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#4FB6B2]" aria-hidden />}
+      {phase === 'success' && <CheckCircle2 className="h-4 w-4 shrink-0 text-[#4FB6B2]" aria-hidden />}
       {phase === 'error' && <XCircle className="h-4 w-4 shrink-0 text-rose-600" aria-hidden />}
-      <span className="min-w-0 flex-1 font-medium text-slate-700">{message || 'Working…'}</span>
+      <span className="min-w-0 flex-1 font-medium text-[#1F2937]">{message || 'Working…'}</span>
       {(phase === 'success' || phase === 'error') && onDismiss ? (
         <button
           type="button"
           onClick={onDismiss}
-          className="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          className="shrink-0 rounded-lg p-1 text-[#9CA3AF] hover:bg-[#F1F5F9] hover:text-[#1F2937]"
           aria-label="Dismiss"
         >
           <X className="h-3.5 w-3.5" />

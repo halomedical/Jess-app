@@ -93,21 +93,21 @@ export const UniversalScribe: React.FC<Props> = ({ onTranscriptionComplete, onEr
     <div className="fixed z-50 flex flex-col items-end gap-2 bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] sm:bottom-6 sm:right-6">
       {/* Recording indicator pill */}
       {isRecording && (
-        <div className="bg-white border border-red-200 shadow-lg rounded-full px-3 py-1.5 flex items-center gap-2 animate-in fade-in">
+        <div className="bg-white border border-red-200 shadow-[0_1px_2px_rgba(0,0,0,0.05)] rounded-full px-3 py-1.5 flex items-center gap-2 animate-in fade-in">
           <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse shadow-[0_0_6px_rgba(239,68,68,0.5)]" />
-          <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Recording</span>
+          <span className="text-[11px] font-bold text-[#6B7280] uppercase tracking-wider">Recording</span>
         </div>
       )}
 
       {/* Processing indicator pill */}
       {isProcessing && (
-        <div className="bg-white border border-teal-200 shadow-lg rounded-full px-3 py-1.5 flex flex-col items-end gap-1">
+        <div className="bg-white border border-[#E5E7EB] shadow-[0_1px_2px_rgba(0,0,0,0.05)] rounded-full px-3 py-1.5 flex flex-col items-end gap-1">
           <div className="flex items-center gap-2">
-            <Wand2 className="w-3.5 h-3.5 text-teal-500 animate-spin" />
-            <span className="text-[11px] font-bold text-teal-700 uppercase tracking-wider">Scribing...</span>
+            <Wand2 className="w-3.5 h-3.5 text-[#4FB6B2] animate-spin" />
+            <span className="text-[11px] font-bold text-[#4FB6B2] uppercase tracking-wider">Scribing...</span>
           </div>
           {longWait && (
-            <span className="text-[9px] text-slate-500">Still working — often under 30s.</span>
+            <span className="text-[9px] text-[#6B7280]">Still working — often under 30s.</span>
           )}
         </div>
       )}
@@ -117,12 +117,12 @@ export const UniversalScribe: React.FC<Props> = ({ onTranscriptionComplete, onEr
         onClick={isRecording ? stopRecording : startRecording}
         disabled={isProcessing}
         title={isRecording ? 'Stop recording' : isProcessing ? 'Processing...' : 'Launch Scribe'}
-        className={`flex items-center justify-center rounded-full shadow-lg transition-all duration-200 touch-manipulation min-w-[48px] min-h-[48px] w-14 h-14 sm:w-12 sm:h-12 ${
+        className={`flex items-center justify-center rounded-full shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition-all duration-200 touch-manipulation min-w-[48px] min-h-[48px] w-14 h-14 sm:w-12 sm:h-12 ${
           isRecording
             ? 'bg-red-500 hover:bg-red-600 text-white ring-4 ring-red-200 animate-pulse'
             : isProcessing
-              ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-              : 'bg-teal-600 hover:bg-teal-700 text-white hover:scale-110 active:scale-95 hover:shadow-xl'
+              ? 'bg-[#F1F5F9] text-[#9CA3AF] cursor-not-allowed'
+              : 'bg-[#4FB6B2] hover:bg-[#3FA6A2] text-white hover:scale-110 active:scale-95'
         }`}
       >
         {isProcessing ? (

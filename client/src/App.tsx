@@ -235,10 +235,10 @@ export const App = () => {
 
   if (!isReady) {
     return (
-      <div className="flex min-h-[100dvh] h-[100dvh] w-full items-center justify-center bg-gradient-to-b from-slate-50 to-white safe-pad-t safe-pad-b safe-pad-x">
+      <div className="flex min-h-[100dvh] h-[100dvh] w-full items-center justify-center bg-[#F7F9FB] safe-pad-t safe-pad-b safe-pad-x">
         <div className="flex flex-col items-center gap-4">
-          <Loader className="animate-spin text-teal-600" size={32} />
-          <p className="text-sm text-slate-400 font-medium">Loading…</p>
+          <Loader className="animate-spin text-[#4FB6B2]" size={32} />
+          <p className="text-sm text-[#6B7280] font-medium">Loading…</p>
         </div>
       </div>
     );
@@ -246,20 +246,20 @@ export const App = () => {
 
   if (!isSignedIn) {
     return (
-      <div className="flex min-h-[100dvh] h-[100dvh] w-full items-center justify-center bg-gradient-to-b from-slate-50 to-white safe-pad-t safe-pad-b safe-pad-x overflow-y-auto">
+      <div className="flex min-h-[100dvh] h-[100dvh] w-full items-center justify-center bg-[#F7F9FB] safe-pad-t safe-pad-b safe-pad-x overflow-y-auto">
         <div className="max-w-sm w-full text-center px-6 py-4">
           <SignInBranding className="mb-6" />
-          <h1 className="text-xl font-semibold text-slate-800 mb-2">Welcome</h1>
-          <p className="text-slate-500 mb-8 text-sm leading-relaxed">
+          <h1 className="text-xl font-semibold text-[#1F2937] mb-2">Welcome</h1>
+          <p className="text-[#6B7280] mb-8 text-sm leading-relaxed">
             Sign in to access your secure patient workspace.
           </p>
 
-          <button onClick={handleSignIn} className="w-full flex items-center justify-center gap-3 bg-teal-700 hover:bg-teal-800 text-white px-6 py-4 rounded-xl transition-all shadow-md hover:shadow-lg font-semibold text-lg active:scale-[0.98]">
+          <button onClick={handleSignIn} className="w-full flex items-center justify-center gap-3 bg-[#4FB6B2] hover:bg-[#3FA6A2] text-white px-6 py-4 rounded-[10px] transition-all shadow-[0_1px_2px_rgba(0,0,0,0.05)] font-semibold text-lg active:scale-[0.98]">
             {loading ? <Loader className="animate-spin" /> : <LogIn size={20} />}
             {loading ? "Connecting..." : "Sign In with Google"}
           </button>
 
-          <p className="mt-8 text-xs text-slate-400">Secure Environment &bull; POPIA Compliant</p>
+          <p className="mt-8 text-xs text-[#9CA3AF]">Secure Environment &bull; POPIA Compliant</p>
         </div>
       </div>
     );
@@ -270,7 +270,7 @@ export const App = () => {
   return (
     <RecordingSessionsProvider>
     <RecordingSessionPatientSwitchEffect patientId={selectedPatientId} />
-    <div className="flex min-h-[100dvh] h-[100dvh] max-h-[100dvh] w-full bg-gradient-to-br from-slate-50 via-white to-teal-50/50 font-sans text-slate-900 overflow-hidden relative">
+    <div className="flex min-h-[100dvh] h-[100dvh] max-h-[100dvh] w-full bg-[#F7F9FB] font-sans text-[#1F2937] overflow-hidden relative">
       <div className={`${selectedPatientId ? 'hidden md:flex' : 'flex'} h-full min-h-0 w-full md:w-auto shrink-0 z-20`}>
         <Sidebar
           patients={patients}
@@ -291,10 +291,10 @@ export const App = () => {
           <button
             type="button"
             aria-label="Close menu"
-            className="fixed inset-0 z-[45] bg-slate-900/50 md:hidden"
+            className="fixed inset-0 z-[45] bg-[#1F2937]/25 md:hidden"
             onClick={() => setMobileSidebarOpen(false)}
           />
-          <div className="fixed inset-y-0 left-0 z-[50] flex w-[min(calc(100vw-3rem),20rem)] min-h-0 shadow-2xl md:hidden">
+          <div className="fixed inset-y-0 left-0 z-[50] flex w-[min(calc(100vw-3rem),20rem)] min-h-0 shadow-[0_1px_2px_rgba(0,0,0,0.05)] md:hidden">
             <Sidebar
               patients={patients}
               selectedPatientId={selectedPatientId}
@@ -328,7 +328,7 @@ export const App = () => {
             onOpenMobileNav={() => setMobileSidebarOpen(true)}
           />
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-slate-300 relative overflow-hidden">
+          <div className="flex-1 flex flex-col items-center justify-center text-[#9CA3AF] relative overflow-hidden bg-[#F7F9FB]">
             {/* Background logo — large watermark */}
             <img
               src="/halo-logo.png"
@@ -345,7 +345,7 @@ export const App = () => {
                 className="w-44 h-44 md:w-56 md:h-56 lg:w-64 lg:h-64 object-contain mb-6 opacity-20"
                 draggable={false}
               />
-              <p className="text-lg font-medium text-slate-400">Select a patient to begin</p>
+              <p className="text-lg font-medium text-[#6B7280]">Select a patient to begin</p>
               <div className="mt-10 w-full max-w-lg px-2 opacity-90">
                 <EcgRhythmStrip variant="light" />
               </div>
@@ -376,78 +376,78 @@ export const App = () => {
 
       {/* CREATE PATIENT MODAL */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4 safe-pad-b">
-          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-lg max-h-[90dvh] overflow-y-auto p-6 sm:m-4">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-[#1F2937]/25 backdrop-blur-[2px] p-0 sm:p-4 safe-pad-b">
+          <div className="bg-white rounded-t-[12px] sm:rounded-[12px] border border-[#E5E7EB] shadow-[0_1px_2px_rgba(0,0,0,0.05)] w-full max-w-lg max-h-[90dvh] overflow-y-auto p-6 sm:m-4">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><UserPlus className="text-teal-600" size={24}/> New Patient Folder</h2>
-              <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition"><X size={20} /></button>
+              <h2 className="text-xl font-bold text-[#1F2937] flex items-center gap-2"><UserPlus className="text-[#4FB6B2]" size={24}/> New Patient Folder</h2>
+              <button onClick={() => setShowCreateModal(false)} className="text-[#9CA3AF] hover:text-[#1F2937] p-1 rounded-full hover:bg-[#F1F5F9] transition"><X size={20} /></button>
             </div>
             <form onSubmit={submitCreatePatient}>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-semibold text-slate-600 mb-1.5">Full Name</label>
-                  <input autoFocus type="text" placeholder="e.g. Sarah Connor" value={newPatientName} onChange={(e) => setNewPatientName(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
+                  <label className="block text-sm font-semibold text-[#6B7280] mb-1.5">Full Name</label>
+                  <input autoFocus type="text" placeholder="e.g. Sarah Connor" value={newPatientName} onChange={(e) => setNewPatientName(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-[10px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition" />
                 </div>
                 <div className="flex gap-4">
                   <div className="flex-1 min-w-0">
-                    <label className="block text-sm font-semibold text-slate-600 mb-1.5 flex items-center gap-1"><Calendar size={14} /> Date of Birth <span className="text-rose-500">*</span></label>
-                    <input type="date" value={newPatientDob} onChange={(e) => setNewPatientDob(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
-                    <p className="text-xs text-slate-400 mt-1">Required — pick a date or creation will fail.</p>
+                    <label className="block text-sm font-semibold text-[#6B7280] mb-1.5 flex items-center gap-1"><Calendar size={14} /> Date of Birth <span className="text-rose-500">*</span></label>
+                    <input type="date" value={newPatientDob} onChange={(e) => setNewPatientDob(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-[10px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition" />
+                    <p className="text-xs text-[#9CA3AF] mt-1">Required — pick a date or creation will fail.</p>
                   </div>
                   <div className="w-1/3">
-                    <label className="block text-sm font-semibold text-slate-600 mb-1.5 flex items-center gap-1"><Users size={14} /> Sex</label>
-                    <div className="flex bg-slate-100 p-1 rounded-xl">
-                      <button type="button" onClick={() => setNewPatientSex('M')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${newPatientSex === 'M' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>M</button>
-                      <button type="button" onClick={() => setNewPatientSex('F')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${newPatientSex === 'F' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>F</button>
+                    <label className="block text-sm font-semibold text-[#6B7280] mb-1.5 flex items-center gap-1"><Users size={14} /> Sex</label>
+                    <div className="flex bg-[#F1F5F9] p-1 rounded-[10px]">
+                      <button type="button" onClick={() => setNewPatientSex('M')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${newPatientSex === 'M' ? 'bg-white text-[#4FB6B2] shadow-[0_1px_2px_rgba(0,0,0,0.05)]' : 'text-[#9CA3AF] hover:text-[#6B7280]'}`}>M</button>
+                      <button type="button" onClick={() => setNewPatientSex('F')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${newPatientSex === 'F' ? 'bg-white text-[#4FB6B2] shadow-[0_1px_2px_rgba(0,0,0,0.05)]' : 'text-[#9CA3AF] hover:text-[#6B7280]'}`}>F</button>
                     </div>
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-600 mb-1.5">Folder number</label>
-                  <input type="text" placeholder="e.g. MRN, filing reference" value={newPatientFolderNumber} onChange={(e) => setNewPatientFolderNumber(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
+                  <label className="block text-sm font-semibold text-[#6B7280] mb-1.5">Folder number</label>
+                  <input type="text" placeholder="e.g. MRN, filing reference" value={newPatientFolderNumber} onChange={(e) => setNewPatientFolderNumber(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-[10px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition" />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-600 mb-1.5">Cellphone number</label>
-                  <input type="tel" placeholder="e.g. 082 123 4567" value={newPatientContact} onChange={(e) => setNewPatientContact(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
+                  <label className="block text-sm font-semibold text-[#6B7280] mb-1.5">Cellphone number</label>
+                  <input type="tel" placeholder="e.g. 082 123 4567" value={newPatientContact} onChange={(e) => setNewPatientContact(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-[10px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition" />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-600 mb-1.5">Referring doctor</label>
-                  <input type="text" placeholder="e.g. Dr A. Nkomo" value={newPatientReferringDoctor} onChange={(e) => setNewPatientReferringDoctor(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition" />
+                  <label className="block text-sm font-semibold text-[#6B7280] mb-1.5">Referring doctor</label>
+                  <input type="text" placeholder="e.g. Dr A. Nkomo" value={newPatientReferringDoctor} onChange={(e) => setNewPatientReferringDoctor(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-[10px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition" />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-600 mb-1.5">Patient visit</label>
-                  <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
+                  <label className="block text-sm font-semibold text-[#6B7280] mb-1.5">Patient visit</label>
+                  <div className="flex bg-[#F1F5F9] p-1 rounded-[10px] gap-1">
                     <button
                       type="button"
                       onClick={() => setNewPatientVisitType('new')}
-                      className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${newPatientVisitType === 'new' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                      className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${newPatientVisitType === 'new' ? 'bg-white text-[#4FB6B2] shadow-[0_1px_2px_rgba(0,0,0,0.05)]' : 'text-[#9CA3AF] hover:text-[#6B7280]'}`}
                     >
                       New patient
                     </button>
                     <button
                       type="button"
                       onClick={() => setNewPatientVisitType('follow_up')}
-                      className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${newPatientVisitType === 'follow_up' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                      className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${newPatientVisitType === 'follow_up' ? 'bg-white text-[#4FB6B2] shadow-[0_1px_2px_rgba(0,0,0,0.05)]' : 'text-[#9CA3AF] hover:text-[#6B7280]'}`}
                     >
                       Follow-up
                     </button>
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
+                  <label className="block text-sm font-semibold text-[#6B7280] mb-1.5 flex items-center gap-1">
                     <Calendar size={14} /> Visit date <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="date"
                     value={newPatientVisitDate}
                     onChange={(e) => setNewPatientVisitDate(e.target.value)}
-                    className="w-full min-h-[44px] px-4 py-3 rounded-xl border border-slate-200 bg-white text-base text-slate-800 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition"
+                    className="w-full min-h-[44px] px-4 py-3 rounded-[10px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
                   />
-                  <p className="text-xs text-slate-400 mt-1">Encounter or registration date (defaults to today).</p>
+                  <p className="text-xs text-[#9CA3AF] mt-1">Encounter or registration date (defaults to today).</p>
                 </div>
                 <div className="pt-2 flex gap-3">
-                  <button type="button" onClick={() => setShowCreateModal(false)} className="flex-1 px-4 py-3 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition">Cancel</button>
-                  <button type="submit" disabled={!newPatientName.trim() || !newPatientDob || !newPatientVisitDate || loading} className="flex-1 bg-teal-600 hover:bg-teal-700 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-teal-600/20 disabled:opacity-50 disabled:shadow-none transition flex items-center justify-center gap-2">
+                  <button type="button" onClick={() => setShowCreateModal(false)} className="flex-1 px-4 py-3 rounded-[10px] font-medium text-[#1F2937] bg-white border border-[#E5E7EB] hover:bg-[#F1F5F9] transition">Cancel</button>
+                  <button type="submit" disabled={!newPatientName.trim() || !newPatientDob || !newPatientVisitDate || loading} className="flex-1 bg-[#4FB6B2] hover:bg-[#3FA6A2] text-white px-4 py-3 rounded-[10px] font-bold shadow-[0_1px_2px_rgba(0,0,0,0.05)] disabled:opacity-50 transition flex items-center justify-center gap-2">
                     {loading ? <Loader className="animate-spin" size={18}/> : 'Create Folder'}
                   </button>
                 </div>
@@ -459,21 +459,21 @@ export const App = () => {
 
       {/* DELETE CONFIRMATION MODAL */}
       {patientToDelete && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4 safe-pad-b">
-          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-md max-h-[90dvh] overflow-y-auto p-6 sm:m-4 border-2 border-rose-100">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-[#1F2937]/25 backdrop-blur-[2px] p-0 sm:p-4 safe-pad-b">
+          <div className="bg-white rounded-t-[12px] sm:rounded-[12px] border-2 border-rose-100 shadow-[0_1px_2px_rgba(0,0,0,0.05)] w-full max-w-md max-h-[90dvh] overflow-y-auto p-6 sm:m-4">
             <div className="flex flex-col items-center text-center mb-6">
               <div className="w-16 h-16 bg-rose-50 rounded-full flex items-center justify-center mb-4 text-rose-500">
                 <AlertTriangle size={32} />
               </div>
-              <h2 className="text-xl font-bold text-slate-800">Delete Patient Folder?</h2>
-              <p className="text-slate-500 mt-2 px-4">
-                Are you sure you want to delete <span className="font-bold text-slate-800">{patientToDelete.name}</span>?
+              <h2 className="text-xl font-bold text-[#1F2937]">Delete Patient Folder?</h2>
+              <p className="text-[#6B7280] mt-2 px-4">
+                Are you sure you want to delete <span className="font-bold text-[#1F2937]">{patientToDelete.name}</span>?
                 This will move the folder to your Google Drive Trash.
               </p>
             </div>
             <div className="flex gap-3">
-              <button onClick={() => setPatientToDelete(null)} className="flex-1 px-4 py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-100 transition">Cancel</button>
-              <button onClick={confirmDelete} className="flex-1 bg-rose-500 hover:bg-rose-600 text-white px-4 py-3 rounded-xl font-bold shadow-lg shadow-rose-500/20 transition flex items-center justify-center gap-2">
+              <button onClick={() => setPatientToDelete(null)} className="flex-1 px-4 py-3 rounded-[10px] font-bold text-[#1F2937] bg-white border border-[#E5E7EB] hover:bg-[#F1F5F9] transition">Cancel</button>
+              <button onClick={confirmDelete} className="flex-1 bg-rose-500 hover:bg-rose-600 text-white px-4 py-3 rounded-[10px] font-bold shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition flex items-center justify-center gap-2">
                 {loading ? <Loader className="animate-spin" size={18}/> : <Trash2 size={18}/>}
                 Delete Folder
               </button>

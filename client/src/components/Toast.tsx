@@ -15,15 +15,15 @@ const ICONS = {
 };
 
 const STYLES = {
-  success: 'bg-emerald-50 border-emerald-200 text-emerald-800',
+  success: 'bg-[#E6F4F3] border-[#E5E7EB] text-[#1F2937]',
   error: 'bg-rose-50 border-rose-200 text-rose-800',
-  info: 'bg-teal-50 border-teal-200 text-teal-900',
+  info: 'bg-[#E6F4F3] border-[#E5E7EB] text-[#1F2937]',
 };
 
 const ICON_STYLES = {
-  success: 'text-emerald-500',
+  success: 'text-[#4FB6B2]',
   error: 'text-rose-500',
-  info: 'text-teal-600',
+  info: 'text-[#4FB6B2]',
 };
 
 export const Toast: React.FC<Props> = ({ message, type, onClose, duration = 4000 }) => {
@@ -36,12 +36,12 @@ export const Toast: React.FC<Props> = ({ message, type, onClose, duration = 4000
 
   return (
     <div className="fixed z-[100] left-4 right-4 max-md:top-auto max-md:bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] md:top-6 md:right-6 md:left-auto md:bottom-auto animate-in slide-in-from-bottom-2 md:slide-in-from-top-4 fade-in duration-300">
-      <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border shadow-lg max-w-full md:max-w-sm ${STYLES[type]}`}>
+      <div className={`flex items-center gap-3 px-4 py-3 rounded-[10px] border shadow-[0_1px_2px_rgba(0,0,0,0.05)] max-w-full md:max-w-sm ${STYLES[type]}`}>
         <Icon className={`w-5 h-5 shrink-0 ${ICON_STYLES[type]}`} />
         <p className="text-sm font-medium flex-1">{message}</p>
         <button
           onClick={onClose}
-          className="p-1 rounded-full hover:bg-black/5 transition-colors shrink-0"
+          className="p-1 rounded-full hover:bg-[#F1F5F9] transition-colors shrink-0"
         >
           <X className="w-4 h-4" />
         </button>

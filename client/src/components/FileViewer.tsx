@@ -155,8 +155,8 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
     if (loading) {
       return (
         <div className="flex flex-col items-center justify-center h-full gap-4">
-          <Loader2 className="w-10 h-10 text-teal-500 animate-spin" />
-          <p className="text-slate-500 text-sm font-medium">Loading preview...</p>
+          <Loader2 className="w-10 h-10 text-[#4FB6B2] animate-spin" />
+          <p className="text-[#6B7280] text-sm font-medium">Loading preview...</p>
         </div>
       );
     }
@@ -165,12 +165,12 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
       return (
         <div className="flex flex-col items-center justify-center h-full gap-4">
           <AlertCircle className="w-12 h-12 text-rose-400" />
-          <p className="text-slate-600 font-medium">{error}</p>
+          <p className="text-[#6B7280] font-medium">{error}</p>
           <a
             href={fileUrl}
             target="_blank"
             rel="noreferrer"
-            className="text-sm text-teal-600 hover:text-teal-700 underline"
+            className="text-sm text-[#4FB6B2] hover:text-[#3FA6A2] underline"
           >
             Open in Google Drive instead
           </a>
@@ -181,14 +181,14 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
     if (viewerType === 'unsupported') {
       return (
         <div className="flex flex-col items-center justify-center h-full gap-4">
-          <FileText className="w-12 h-12 text-slate-300" />
-          <p className="text-slate-600 font-medium">Preview not available for this file type</p>
-          <p className="text-slate-400 text-sm">({mimeType})</p>
+          <FileText className="w-12 h-12 text-[#9CA3AF]" />
+          <p className="text-[#6B7280] font-medium">Preview not available for this file type</p>
+          <p className="text-[#9CA3AF] text-sm">({mimeType})</p>
           <a
             href={fileUrl}
             target="_blank"
             rel="noreferrer"
-            className="mt-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition flex items-center gap-2 text-sm font-semibold"
+            className="mt-2 px-4 py-2 bg-[#4FB6B2] text-white rounded-[10px] hover:bg-[#3FA6A2] shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition flex items-center gap-2 text-sm font-semibold"
           >
             <ExternalLink size={16} /> Open in New Tab
           </a>
@@ -199,7 +199,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
     if (viewerType === 'image' && blobUrl) {
       return (
         <div className="flex items-center justify-center h-full p-4 overflow-auto">
-          <img src={blobUrl} alt={fileName} className="max-w-full max-h-full object-contain rounded-lg shadow-sm" />
+          <img src={blobUrl} alt={fileName} className="max-w-full max-h-full object-contain rounded-[10px] shadow-[0_1px_2px_rgba(0,0,0,0.05)]" />
         </div>
       );
     }
@@ -217,7 +217,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
     if (viewerType === 'text' && textContent !== null) {
       return (
         <div className="h-full overflow-auto p-6">
-          <pre className="whitespace-pre-wrap font-mono text-sm text-slate-700 leading-relaxed">
+          <pre className="whitespace-pre-wrap font-mono text-sm text-[#1F2937] leading-relaxed">
             {textContent}
           </pre>
         </div>
@@ -228,10 +228,10 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
       return (
         <div className="h-full overflow-auto p-6 bg-white">
           <div
-            className="docx-preview max-w-[52rem] mx-auto text-slate-800 text-[0.9375rem] leading-relaxed [&_p]:my-2 [&_p:first-child]:mt-0 [&_h1]:text-xl [&_h1]:font-bold [&_h1]:my-3 [&_h2]:text-lg [&_h2]:font-bold [&_h2]:my-2 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-2 [&_li]:my-0.5 [&_table]:w-full [&_table]:text-sm [&_table]:my-3 [&_td]:border [&_td]:border-slate-200 [&_td]:p-1.5 [&_td]:align-top [&_th]:border [&_th]:border-slate-200 [&_th]:p-1.5 [&_th]:bg-slate-50 [&_th]:font-semibold [&_a]:text-teal-700 [&_a]:underline"
+            className="docx-preview max-w-[52rem] mx-auto text-[#1F2937] text-[0.9375rem] leading-relaxed [&_p]:my-2 [&_p:first-child]:mt-0 [&_h1]:text-xl [&_h1]:font-bold [&_h1]:my-3 [&_h2]:text-lg [&_h2]:font-bold [&_h2]:my-2 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-2 [&_li]:my-0.5 [&_table]:w-full [&_table]:text-sm [&_table]:my-3 [&_td]:border [&_td]:border-[#E5E7EB] [&_td]:p-1.5 [&_td]:align-top [&_th]:border [&_th]:border-[#E5E7EB] [&_th]:p-1.5 [&_th]:bg-[#F1F5F9] [&_th]:font-semibold [&_a]:text-[#4FB6B2] [&_a]:underline"
             dangerouslySetInnerHTML={{ __html: docxHtml }}
           />
-          <p className="max-w-[52rem] mx-auto mt-4 text-xs text-slate-400">
+          <p className="max-w-[52rem] mx-auto mt-4 text-xs text-[#9CA3AF]">
             Preview may differ slightly from Word formatting. Use “New Tab” for the original file when needed.
           </p>
         </div>
@@ -243,19 +243,19 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-900/70 backdrop-blur-sm p-0 sm:p-4 safe-pad-b"
+      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-[#1F2937]/25 backdrop-blur-[2px] p-0 sm:p-4 safe-pad-b"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:w-[95vw] h-[min(92dvh,100dvh)] sm:h-[90vh] max-w-6xl max-h-[100dvh] flex flex-col overflow-hidden"
+        className="bg-white rounded-t-[12px] sm:rounded-[12px] border border-[#E5E7EB] shadow-[0_1px_2px_rgba(0,0,0,0.05)] w-full sm:w-[95vw] h-[min(92dvh,100dvh)] sm:h-[90vh] max-w-6xl max-h-[100dvh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between gap-2 px-3 sm:px-5 py-3 safe-pad-t border-b border-slate-200 bg-slate-50 rounded-t-2xl shrink-0">
+        <div className="flex items-center justify-between gap-2 px-3 sm:px-5 py-3 safe-pad-t border-b border-[#E5E7EB] bg-[#F7F9FB] rounded-t-[12px] shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <FileText size={18} className="text-teal-600 shrink-0" />
-            <h3 className="font-semibold text-slate-800 truncate">{fileName}</h3>
-            <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">
+            <FileText size={18} className="text-[#4FB6B2] shrink-0" />
+            <h3 className="font-semibold text-[#1F2937] truncate">{fileName}</h3>
+            <span className="text-xs text-[#6B7280] bg-[#F1F5F9] px-2 py-0.5 rounded-full shrink-0 border border-[#E5E7EB]">
               {mimeType.split('/').pop()?.toUpperCase() || 'FILE'}
             </span>
           </div>
@@ -264,14 +264,14 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
               href={fileUrl}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[#6B7280] hover:text-[#4FB6B2] hover:bg-[#E6F4F3] rounded-[10px] transition"
               title="Open in new tab"
             >
               <ExternalLink size={15} /> New Tab
             </a>
             <button
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition"
+              className="p-1.5 text-[#9CA3AF] hover:text-[#1F2937] hover:bg-[#F1F5F9] rounded-[10px] transition"
               title="Close"
             >
               <X size={20} />
@@ -280,7 +280,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
         </div>
 
         {/* Content */}
-        <div className="flex-1 min-h-0 bg-slate-50">
+        <div className="flex-1 min-h-0 bg-[#F7F9FB]">
           {renderContent()}
         </div>
       </div>

@@ -184,9 +184,21 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                       key={file.id}
                       className="group flex flex-col gap-2 rounded-[10px] border border-[#E5E7EB] bg-white p-2.5 transition-all duration-200 hover:border-[#4FB6B2]/30 hover:shadow-[0_1px_2px_rgba(0,0,0,0.05)] sm:flex-row sm:items-center sm:gap-3 sm:p-3"
                     >
-                      <div className="flex min-w-0 flex-1 items-start gap-2.5">
+                      <div
+                        className="flex min-w-0 flex-1 cursor-pointer items-start gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[#4FB6B2] focus-visible:ring-offset-2"
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Open preview, ${file.name}`}
+                        onClick={() => onViewFile(file)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            onViewFile(file);
+                          }
+                        }}
+                      >
                         <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${iconClass}`}>
-                          <IconComponent className="h-5 w-5" />
+                          <IconComponent className="h-5 w-5" aria-hidden />
                         </div>
                         <div className="min-w-0 flex-1">
                           <h4 className="line-clamp-2 break-words font-semibold text-[#1F2937] transition-colors group-hover:text-[#4FB6B2]">{file.name}</h4>
@@ -212,7 +224,10 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                         )}
                         <button
                           type="button"
-                          onClick={() => onViewFile(file)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onViewFile(file);
+                          }}
                           className="flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg text-[#9CA3AF] transition-colors hover:bg-[#E6F4F3] hover:text-[#4FB6B2] sm:opacity-0 sm:group-hover:opacity-100"
                           title="Preview"
                         >
@@ -220,15 +235,21 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                         </button>
                         <button
                           type="button"
-                          onClick={() => onStartEditFile(file)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onStartEditFile(file);
+                          }}
                           className="flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg text-[#9CA3AF] transition-colors hover:bg-[#F1F5F9] hover:text-[#4FB6B2] sm:opacity-0 sm:group-hover:opacity-100"
-                          title="Rename"
+                          title="Rename file"
                         >
                           <Pencil size={16} aria-hidden />
                         </button>
                         <button
                           type="button"
-                          onClick={() => onDeleteFile(file)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteFile(file);
+                          }}
                           className="flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg text-[#9CA3AF] transition-colors hover:bg-rose-50 hover:text-rose-500 sm:opacity-0 sm:group-hover:opacity-100"
                           title="Delete"
                         >
@@ -238,6 +259,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
                           href={file.url}
                           target="_blank"
                           rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
                           className="flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg text-[#9CA3AF] transition-colors hover:bg-[#F1F5F9] hover:text-[#4FB6B2] sm:opacity-0 sm:group-hover:opacity-100"
                           title="Open in Google Drive"
                         >

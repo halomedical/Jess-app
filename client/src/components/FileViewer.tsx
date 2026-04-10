@@ -198,7 +198,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
 
     if (viewerType === 'image' && blobUrl) {
       return (
-        <div className="flex items-center justify-center h-full p-4 overflow-auto">
+        <div className="flex h-full min-h-0 items-center justify-center overflow-auto p-4">
           <img src={blobUrl} alt={fileName} className="max-w-full max-h-full object-contain rounded-[10px] shadow-[0_1px_2px_rgba(0,0,0,0.05)]" />
         </div>
       );
@@ -209,15 +209,15 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
         <iframe
           src={blobUrl}
           title={fileName}
-          className="w-full h-full rounded-b-xl border-0"
+          className="h-full min-h-0 w-full rounded-b-xl border-0"
         />
       );
     }
 
     if (viewerType === 'text' && textContent !== null) {
       return (
-        <div className="h-full overflow-auto p-6">
-          <pre className="whitespace-pre-wrap font-mono text-sm text-[#1F2937] leading-relaxed">
+        <div className="h-full min-h-0 overflow-auto p-6">
+          <pre className="select-text whitespace-pre-wrap font-mono text-sm text-[#1F2937] leading-relaxed">
             {textContent}
           </pre>
         </div>
@@ -226,12 +226,14 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
 
     if (viewerType === 'docx' && docxHtml !== null) {
       return (
-        <div className="h-full overflow-auto p-6 bg-white">
-          <div
-            className="docx-preview max-w-[52rem] mx-auto text-[#1F2937] text-[0.9375rem] leading-relaxed [&_p]:my-2 [&_p:first-child]:mt-0 [&_h1]:text-xl [&_h1]:font-bold [&_h1]:my-3 [&_h2]:text-lg [&_h2]:font-bold [&_h2]:my-2 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-2 [&_li]:my-0.5 [&_table]:w-full [&_table]:text-sm [&_table]:my-3 [&_td]:border [&_td]:border-[#E5E7EB] [&_td]:p-1.5 [&_td]:align-top [&_th]:border [&_th]:border-[#E5E7EB] [&_th]:p-1.5 [&_th]:bg-[#F1F5F9] [&_th]:font-semibold [&_a]:text-[#4FB6B2] [&_a]:underline"
-            dangerouslySetInnerHTML={{ __html: docxHtml }}
-          />
-          <p className="max-w-[52rem] mx-auto mt-4 text-xs text-[#9CA3AF]">
+        <div className="h-full min-h-0 overflow-auto p-4 sm:p-6">
+          <div className="mx-auto w-full max-w-[48rem] overflow-x-auto rounded-[10px] border border-[#E5E7EB] bg-[#FFFFFF] p-6 shadow-[0_1px_2px_rgba(0,0,0,0.05)] sm:p-10">
+            <div
+              className="docx-preview select-text min-w-0 text-[#1F2937] text-[0.9375rem] leading-relaxed [&_img]:h-auto [&_img]:max-w-full [&_p]:my-2 [&_p:first-child]:mt-0 [&_h1]:text-xl [&_h1]:font-bold [&_h1]:my-3 [&_h2]:text-lg [&_h2]:font-bold [&_h2]:my-2 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-2 [&_li]:my-0.5 [&_table]:my-3 [&_table]:w-full [&_table]:max-w-full [&_table]:text-sm [&_td]:border [&_td]:border-[#E5E7EB] [&_td]:p-1.5 [&_td]:align-top [&_th]:border [&_th]:border-[#E5E7EB] [&_th]:p-1.5 [&_th]:bg-[#F1F5F9] [&_th]:font-semibold [&_a]:text-[#4FB6B2] [&_a]:underline"
+              dangerouslySetInnerHTML={{ __html: docxHtml }}
+            />
+          </div>
+          <p className="mx-auto mt-4 max-w-[48rem] text-xs text-[#9CA3AF]">
             Preview may differ slightly from Word formatting. Use “New Tab” for the original file when needed.
           </p>
         </div>

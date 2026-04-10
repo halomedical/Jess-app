@@ -148,7 +148,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       {viewMode === 'preview' ? (
         <div className="min-h-0 flex-1 overflow-y-auto bg-[#F7F9FB] px-1.5 py-1 md:bg-[#F7F9FB] md:px-2 md:py-2 sm:px-3">
           <p className="sr-only">Document preview — matches print or DOCX export.</p>
-          <article className="mx-auto max-w-[48rem] rounded-[10px] border border-[#E5E7EB] bg-white px-3 py-3 font-serif text-[14px] leading-relaxed text-[#1F2937] shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:px-8 sm:py-6 md:rounded-sm md:px-8 md:py-6 md:text-[15px] md:text-[#1F2937] md:shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+          <article className="mx-auto max-w-[48rem] select-text rounded-[10px] border border-[#E5E7EB] bg-white px-3 py-3 font-serif text-[14px] leading-relaxed text-[#1F2937] shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:px-8 sm:py-6 md:rounded-sm md:px-8 md:py-6 md:text-[15px] md:text-[#1F2937] md:shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
             <h1 className="mb-2 border-b border-[#E5E7EB] pb-1.5 font-sans text-base font-bold tracking-tight text-[#1F2937] md:mb-4 md:pb-2 md:text-lg md:text-[#1F2937] sm:text-xl">
               {activeNote.title || 'Untitled note'}
             </h1>

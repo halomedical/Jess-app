@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, ExternalLink, Loader2, FileText, AlertCircle } from 'lucide-react';
+import { getFriendlyFileType } from '../utils/formatting';
 
 interface FileViewerProps {
   fileId: string;
@@ -183,7 +184,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
         <div className="flex flex-col items-center justify-center h-full gap-4">
           <FileText className="w-12 h-12 text-[#9CA3AF]" />
           <p className="text-[#6B7280] font-medium">Preview not available for this file type</p>
-          <p className="text-[#9CA3AF] text-sm">({mimeType})</p>
+          <p className="text-[#9CA3AF] text-sm">({getFriendlyFileType(mimeType)})</p>
           <a
             href={fileUrl}
             target="_blank"
@@ -257,9 +258,6 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
           <div className="flex items-center gap-3 min-w-0">
             <FileText size={18} className="text-[#4FB6B2] shrink-0" />
             <h3 className="font-semibold text-[#1F2937] truncate">{fileName}</h3>
-            <span className="text-xs text-[#6B7280] bg-[#F1F5F9] px-2 py-0.5 rounded-full shrink-0 border border-[#E5E7EB]">
-              {mimeType.split('/').pop()?.toUpperCase() || 'FILE'}
-            </span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <a

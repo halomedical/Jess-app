@@ -8,6 +8,7 @@ const WORKSPACE_TEMPLATE_ID = DEFAULT_HALO_TEMPLATE_ID;
 const WORKSPACE_TEMPLATE_LABEL = 'Rooms Consult';
 import { buildNotePlainText } from '../../../shared/notePlainText';
 import { buildClinicalNoteInputFromDictation, buildNoteTextWithPatientChart } from '../../../shared/patientChartContext';
+import { buildNotePreviewPdfText } from '../../../shared/notePreviewPdfText';
 import { formatAgeFromIsoDob } from '../../../shared/patientDemographics';
 import type { ClinicalWorkspaceDraft as PatientEditorDraft, ClinicalWorkspaceDraftFile } from '../../../shared/workspaceDraft';
 import { isHaloWorkspaceDraftFile } from '../../../shared/workspaceDraft';
@@ -945,7 +946,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         revokePreviewPdf();
         return;
       }
-      const text = buildNoteTextWithPatientChart(p, plain);
+      const text = buildNotePreviewPdfText(p, note);
 
       setPreviewPdfLoading(true);
       setPreviewPdfError(null);

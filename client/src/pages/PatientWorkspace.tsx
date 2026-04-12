@@ -18,7 +18,7 @@ import {
   updateFileMetadata, generatePatientSummary, analyzeAndRenameImage,
   extractLabAlerts, deleteFile, createFolder, askHaloStream,
   generateNotePreview, saveNoteAsDocx, sendClinicalNoteEmail, sendWorkspaceFileEmail,
-  fetchWorkspaceDraft, saveWorkspaceDraft,
+  fetchWorkspaceDraft, saveWorkspaceDraft, fetchNotePreviewPdf,
 } from '../services/api';
 import {
   Upload, Calendar, Clock, CheckCircle2, ChevronLeft, ChevronDown, Loader2,
@@ -184,6 +184,7 @@ function shouldApplyRemoteWorkspace(
 
 export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChange, onToast, userEmail, onOpenMobileNav }) => {
   const scribeSessions = useRecordingSessions();
+  const { processingPatientIds } = scribeSessions;
   const [files, setFiles] = useState<DriveFile[]>([]);
   const [summary, setSummary] = useState<string[]>([]);
   const [alerts, setAlerts] = useState<LabAlert[]>([]);
@@ -206,6 +207,19 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [driveSyncReady, setDriveSyncReady] = useState(false);
   /** Non-blocking DOCX save feedback (bottom-right chip). */
   const [docxTask, setDocxTask] = useState<{ phase: 'idle' | 'running' | 'success' | 'error'; message?: string }>({ phase: 'idle' });
+
+  /** Inline PDF preview for Editor tab (same full text as DOCX path). */
+  const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
+  const [previewPdfLoading, setPreviewPdfLoading] = useState(false);
+  const [previewPdfError, setPreviewPdfError] = useState<string | null>(null);
+  const previewPdfUrlRef = useRef<string | null>(null);
+  const pdfAbortRef = useRef<AbortController | null>(null);
+  const pdfFetchGenRef = useRef(0);
+  const notesRef = useRef<HaloNote[]>([]);
+  const generationInFlightRef = useRef(false);
+  const runWorkspaceNoteGenerationRef = useRef<((opts?: { source?: 'auto' | 'manual' }) => Promise<void>) | null>(null);
+  /** Rooms Consult generation only — do not conflate with folder/file LOADING. */
+  const [workspaceNoteGenerating, setWorkspaceNoteGenerating] = useState(false);
 
   const setWorkspaceTab = useCallback((tab: WorkspaceTab) => {
     setActiveTab(tab);
@@ -245,6 +259,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
 
   const patientRef = useRef(patient);
   patientRef.current = patient;
+  notesRef.current = notes;
 
   useEffect(() => {
     pendingTranscriptRef.current = pendingTranscript;
@@ -803,6 +818,17 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       pendingTranscriptRef.current = merged;
       setPendingTranscript(merged);
       setWorkspaceTab('notes');
+
+      // Auto-generate once this transcription chunk is merged (one listener call per finishAndTranscribe).
+      // queueMicrotask ensures runWorkspaceNoteGenerationRef is set and avoids racing transcriptionNotify.
+      const mergedSnapshot = merged;
+      queueMicrotask(() => {
+        if (patientRef.current.id !== pid) return;
+        if (pendingTranscriptRef.current?.trim() !== mergedSnapshot.trim()) return;
+        if (generationInFlightRef.current) return;
+        const fn = runWorkspaceNoteGenerationRef.current;
+        if (fn) void fn({ source: 'auto' });
+      });
     };
 
     const unsub = scribeSessions.subscribeTranscription(pid, applyTranscript);
@@ -890,45 +916,150 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     activeNoteIndex,
   ]);
 
-  const handleGenerateFromTemplates = useCallback(async () => {
-    const rawDictation = pendingTranscript?.trim() ?? '';
-    if (!rawDictation) {
-      onToast('No dictation to generate from.', 'info');
+  const revokePreviewPdf = useCallback(() => {
+    pdfAbortRef.current?.abort();
+    pdfAbortRef.current = null;
+    if (previewPdfUrlRef.current) {
+      URL.revokeObjectURL(previewPdfUrlRef.current);
+      previewPdfUrlRef.current = null;
+    }
+    setPreviewPdfUrl(null);
+  }, []);
+
+  const loadPreviewPdf = useCallback(
+    async (noteIndex: number) => {
+      pdfAbortRef.current?.abort();
+      const ac = new AbortController();
+      pdfAbortRef.current = ac;
+      const gen = ++pdfFetchGenRef.current;
+
+      const list = notesRef.current;
+      const p = patientRef.current;
+      const note = list[noteIndex];
+      if (!note) {
+        revokePreviewPdf();
+        return;
+      }
+      const plain = buildNotePlainText(note);
+      if (!plain.trim()) {
+        revokePreviewPdf();
+        return;
+      }
+      const text = buildNoteTextWithPatientChart(p, plain);
+
+      setPreviewPdfLoading(true);
+      setPreviewPdfError(null);
+      try {
+        const blob = await fetchNotePreviewPdf(text, ac.signal);
+        if (gen !== pdfFetchGenRef.current) return;
+        const prevUrl = previewPdfUrlRef.current;
+        const url = URL.createObjectURL(blob);
+        previewPdfUrlRef.current = url;
+        setPreviewPdfUrl(url);
+        if (prevUrl) URL.revokeObjectURL(prevUrl);
+      } catch (e) {
+        if ((e as Error).name === 'AbortError') return;
+        if (gen !== pdfFetchGenRef.current) return;
+        setPreviewPdfError(getErrorMessage(e));
+      } finally {
+        if (gen === pdfFetchGenRef.current) setPreviewPdfLoading(false);
+      }
+    },
+    [revokePreviewPdf]
+  );
+
+  const runWorkspaceNoteGeneration = useCallback(
+    async (opts?: { source?: 'auto' | 'manual' }) => {
+      const rawDictation = pendingTranscriptRef.current?.trim() ?? '';
+      if (!rawDictation) {
+        if (opts?.source !== 'auto') onToast('No dictation to generate from.', 'info');
+        return;
+      }
+      if (generationInFlightRef.current) return;
+      generationInFlightRef.current = true;
+      setWorkspaceNoteGenerating(true);
+      const dictationForModel = stripLeadingDictationTemplateCue(rawDictation);
+      const inputText = buildClinicalNoteInputFromDictation(patientRef.current, dictationForModel);
+      try {
+        const res = await generateNotePreview({ template_id: WORKSPACE_TEMPLATE_ID, text: inputText });
+        const first = res.notes?.[0];
+        const content = first?.content?.trim() ? first.content : dictationForModel;
+        const createdAt = new Date().toISOString();
+        const note: HaloNote = {
+          noteId: first?.noteId ?? `note-${WORKSPACE_TEMPLATE_ID}-${Date.now()}`,
+          title: `${WORKSPACE_TEMPLATE_LABEL} ${formatDocumentDateDisplay()}`,
+          content,
+          template_id: WORKSPACE_TEMPLATE_ID,
+          createdAt,
+          lastSavedAt: createdAt,
+          dirty: false,
+          ...(first?.fields && first.fields.length > 0 ? { fields: first.fields } : {}),
+        };
+        setNotes((prev) => {
+          const newIdx = prev.length;
+          setActiveNoteIndex(newIdx);
+          return [...prev, note];
+        });
+        setPendingTranscript(null);
+        pendingTranscriptRef.current = null;
+        onToast(
+          opts?.source === 'auto'
+            ? 'Rooms Consult note generated.'
+            : 'Note generated. You can edit and save as DOCX.',
+          'success'
+        );
+      } catch (err) {
+        onToast(getErrorMessage(err), 'error');
+      } finally {
+        generationInFlightRef.current = false;
+        setWorkspaceNoteGenerating(false);
+      }
+    },
+    [onToast]
+  );
+
+  const handleGenerateFromTemplates = useCallback(() => {
+    void runWorkspaceNoteGeneration({ source: 'manual' });
+  }, [runWorkspaceNoteGeneration]);
+
+  runWorkspaceNoteGenerationRef.current = runWorkspaceNoteGeneration;
+
+  const handleRetryPreviewPdf = useCallback(() => {
+    void loadPreviewPdf(activeNoteIndex);
+  }, [loadPreviewPdf, activeNoteIndex]);
+
+  useEffect(() => {
+    pdfFetchGenRef.current += 1;
+    pdfAbortRef.current?.abort();
+    if (previewPdfUrlRef.current) {
+      URL.revokeObjectURL(previewPdfUrlRef.current);
+      previewPdfUrlRef.current = null;
+    }
+    setPreviewPdfUrl(null);
+    setPreviewPdfLoading(false);
+    setPreviewPdfError(null);
+  }, [patient.id]);
+
+  useEffect(() => {
+    if (activeTab !== 'notes') return;
+    if (pendingTranscript) return;
+    if (notes.length === 0) {
+      revokePreviewPdf();
       return;
     }
-    setStatus(AppStatus.LOADING);
-    const dictationForModel = stripLeadingDictationTemplateCue(rawDictation);
-    const inputText = buildClinicalNoteInputFromDictation(patient, dictationForModel);
-    try {
-      const res = await generateNotePreview({ template_id: WORKSPACE_TEMPLATE_ID, text: inputText });
-      const first = res.notes?.[0];
-      const content = first?.content?.trim() ? first.content : dictationForModel;
-      const createdAt = new Date().toISOString();
-      const note: HaloNote = {
-        noteId: first?.noteId ?? `note-${WORKSPACE_TEMPLATE_ID}-${Date.now()}`,
-        title: `${WORKSPACE_TEMPLATE_LABEL} ${formatDocumentDateDisplay()}`,
-        content,
-        template_id: WORKSPACE_TEMPLATE_ID,
-        createdAt,
-        lastSavedAt: createdAt,
-        dirty: false,
-        ...(first?.fields && first.fields.length > 0 ? { fields: first.fields } : {}),
-      };
-      setNotes((prev) => {
-        const newIdx = prev.length;
-        setActiveNoteIndex(newIdx);
-        return [...prev, note];
-      });
-      setPendingTranscript(null);
-      pendingTranscriptRef.current = null;
-      onToast('Note generated. You can edit and save as DOCX.', 'success');
-    } catch (err) {
-      onToast(getErrorMessage(err), 'error');
+    const note = notes[activeNoteIndex];
+    if (!note) return;
+    const plain = buildNotePlainText(note);
+    if (!plain.trim()) {
+      revokePreviewPdf();
+      return;
     }
-    setStatus(AppStatus.IDLE);
-  }, [patient, pendingTranscript, onToast]);
+    const t = window.setTimeout(() => {
+      void loadPreviewPdf(activeNoteIndex);
+    }, 450);
+    return () => clearTimeout(t);
+  }, [activeTab, pendingTranscript, notes, activeNoteIndex, loadPreviewPdf, revokePreviewPdf]);
 
-  // Autosave: every 30s mark dirty notes as saved (client-side only; no DOCX generation)
   useEffect(() => {
     if (notes.length === 0) return;
     const interval = setInterval(() => {
@@ -1443,15 +1574,31 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[10px] border border-[#E5E7EB] bg-white md:my-0 md:rounded-lg md:border-[#E5E7EB]/90">
                 <div className="shrink-0 border-b border-[#E5E7EB] px-2 py-2 sm:px-4 md:border-[#F1F5F9] md:py-2.5">
                   <h3 className="text-[11px] font-bold text-[#1F2937] md:text-xs md:text-[#1F2937]">Generate {WORKSPACE_TEMPLATE_LABEL}</h3>
-                  <p className="mt-0.5 text-[10px] text-[#6B7280] md:text-[11px] md:text-[#6B7280]">Dictation becomes a Rooms Consult note.</p>
+                  <p className="mt-0.5 text-[10px] text-[#6B7280] md:text-[11px] md:text-[#6B7280]">
+                    {processingPatientIds.has(patient.id) ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Loader2 className="h-3 w-3 shrink-0 animate-spin text-[#4FB6B2]" aria-hidden />
+                        Transcribing audio…
+                      </span>
+                    ) : workspaceNoteGenerating ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Loader2 className="h-3 w-3 shrink-0 animate-spin text-[#4FB6B2]" aria-hidden />
+                        Generating your Rooms Consult note…
+                      </span>
+                    ) : (
+                      <>
+                        The note generates automatically when transcription is ready. Use Generate note to run it manually if needed.
+                      </>
+                    )}
+                  </p>
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5 md:mt-2 md:gap-2">
                     <button
                       type="button"
                       onClick={() => void handleGenerateFromTemplates()}
-                      disabled={status === AppStatus.LOADING}
+                      disabled={workspaceNoteGenerating}
                       className="rounded-[10px] bg-[#4FB6B2] px-2.5 py-1 text-[10px] font-bold text-white hover:bg-[#3FA6A2] disabled:opacity-50 md:rounded-lg md:px-3 md:py-1.5 md:text-xs md:bg-[#4FB6B2] md:shadow-sm md:hover:bg-[#3FA6A2]"
                     >
-                      {status === AppStatus.LOADING ? 'Generating…' : 'Generate note'}
+                      {workspaceNoteGenerating ? 'Generating…' : 'Generate note'}
                     </button>
                     <button
                       type="button"
@@ -1459,7 +1606,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                         setPendingTranscript(null);
                         pendingTranscriptRef.current = null;
                       }}
-                      className="rounded-[10px] border border-[#E5E7EB] bg-white px-2.5 py-1 text-[10px] font-medium text-[#6B7280] md:rounded-lg md:px-3 md:py-1.5 md:text-xs md:text-[#6B7280]"
+                      disabled={workspaceNoteGenerating}
+                      className="rounded-[10px] border border-[#E5E7EB] bg-white px-2.5 py-1 text-[10px] font-medium text-[#6B7280] disabled:opacity-50 md:rounded-lg md:px-3 md:py-1.5 md:text-xs md:text-[#6B7280]"
                     >
                       Cancel
                     </button>
@@ -1517,7 +1665,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             ) : notes.length === 0 ? (
               <div className="flex min-h-[min(280px,40dvh)] flex-1 flex-col overflow-hidden rounded-xl border border-[#E5E7EB] bg-white shadow-sm md:min-h-[320px]">
                 <div className="flex flex-1 items-center justify-center px-4 text-[#9CA3AF]">
-                  <p className="text-center text-sm">No notes yet. Dictate from the workspace, then generate a Rooms Consult note.</p>
+                  <p className="text-center text-sm">No notes yet. Dictate from the workspace; when transcription finishes, a Rooms Consult note is generated automatically.</p>
                 </div>
               </div>
             ) : (
@@ -1532,6 +1680,11 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                 onEmail={handleEmail}
                 savingNoteIndex={savingNoteIndex}
                 docxExportPhase={docxTask.phase}
+                isGeneratingNote={workspaceNoteGenerating}
+                previewPdfUrl={previewPdfUrl}
+                previewPdfLoading={previewPdfLoading}
+                previewPdfError={previewPdfError}
+                onRetryPreviewPdf={handleRetryPreviewPdf}
               />
             )
           ) : (

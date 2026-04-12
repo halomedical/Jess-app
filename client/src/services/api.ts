@@ -324,6 +324,33 @@ export const generateNotePreview = (params: { template_id: string; text: string;
     body: JSON.stringify({ ...params, return_type: 'note' }),
   });
 
+/** Build inline PDF preview from the same full text used for DOCX (chart + note). */
+export async function fetchNotePreviewPdf(text: string, signal?: AbortSignal): Promise<Blob> {
+  const url = `${API_BASE}/api/halo/note-preview-pdf`;
+  const res = await fetch(url, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+    signal,
+  });
+  if (res.status === 401) {
+    window.location.href = '/';
+    throw new ApiError('Not authenticated', 401);
+  }
+  if (!res.ok) {
+    let msg = `PDF preview failed (${res.status})`;
+    try {
+      const j = (await res.json()) as { error?: string };
+      if (typeof j.error === 'string') msg = j.error;
+    } catch {
+      /* ignore */
+    }
+    throw new ApiError(msg, res.status);
+  }
+  return res.blob();
+}
+
 /** Generate DOCX and save to patient folder on Drive. Returns { success, fileId, name }. */
 export const saveNoteAsDocx = (params: {
   patientId: string;

@@ -17,25 +17,6 @@ function tabDateLabelForNote(note: HaloNote): string {
   return formatDocumentDateDisplay(new Date());
 }
 
-/** Parse note content into labeled fields (e.g. "Subjective:", "Plan:" blocks) for preview */
-function parseNoteFields(content: string): Array<{ label: string; body: string }> {
-  if (!content.trim()) return [];
-  const blocks = content.split(/\n\s*\n/).map((b) => b.trim()).filter(Boolean);
-  return blocks.map((block) => {
-    const firstLineEnd = block.indexOf('\n');
-    const firstLine = firstLineEnd === -1 ? block : block.slice(0, firstLineEnd);
-    const rest = firstLineEnd === -1 ? '' : block.slice(firstLineEnd + 1).trim();
-    const looksLikeHeader =
-      firstLine.length <= 60 &&
-      (firstLine.endsWith(':') || /^[A-Z][a-z]+(\s+[A-Za-z]+)*:?\s*$/.test(firstLine));
-    if (looksLikeHeader && (rest || firstLine.endsWith(':'))) {
-      const label = firstLine.endsWith(':') ? firstLine.slice(0, -1).trim() : firstLine.trim();
-      return { label, body: rest || '' };
-    }
-    return { label: '', body: block };
-  });
-}
-
 interface NoteEditorProps {
   notes: HaloNote[];
   activeIndex: number;
@@ -48,6 +29,13 @@ interface NoteEditorProps {
   savingNoteIndex: number | null;
   /** Background DOCX job — keeps editor usable while saving */
   docxExportPhase?: BackgroundTaskPhase;
+  /** True while Halo note generation is running (dictation → note). */
+  isGeneratingNote?: boolean;
+  /** Inline PDF preview (same source text as DOCX export). */
+  previewPdfUrl: string | null;
+  previewPdfLoading: boolean;
+  previewPdfError: string | null;
+  onRetryPreviewPdf: () => void;
 }
 
 export const NoteEditor: React.FC<NoteEditorProps> = ({
@@ -61,21 +49,22 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   onEmail,
   savingNoteIndex,
   docxExportPhase = 'idle',
+  isGeneratingNote = false,
+  previewPdfUrl,
+  previewPdfLoading,
+  previewPdfError,
+  onRetryPreviewPdf,
 }) => {
   const activeNote = notes[activeIndex];
   const busy = status === AppStatus.FILING;
   const docxBusy = docxExportPhase === 'running';
   const notePlain = useMemo(() => (activeNote ? buildNotePlainText(activeNote) : ''), [activeNote]);
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('preview');
-  const fields = useMemo(() => {
-    if (activeNote?.fields && activeNote.fields.length > 0) return activeNote.fields;
-    return parseNoteFields(activeNote?.content ?? '');
-  }, [activeNote?.content, activeNote?.fields]);
 
   const emptyShell = (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[10px] border border-[#E5E7EB] bg-white md:rounded-lg md:border-[#E5E7EB]/90">
       <div className="flex flex-1 items-center justify-center px-4 text-[#9CA3AF]">
-        <p className="text-center text-xs">No notes yet. Dictate from the workspace, then generate.</p>
+        <p className="text-center text-xs">No notes yet. Dictate from the workspace; a note is generated when transcription finishes.</p>
       </div>
     </div>
   );
@@ -145,34 +134,56 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       </div>
 
+      {isGeneratingNote && (
+        <div className="shrink-0 border-b border-[#E5E7EB] bg-[#E6F4F3] px-2 py-1.5 text-center text-[10px] font-medium text-[#1F2937] md:px-3 md:text-[11px]">
+          <span className="inline-flex items-center gap-1.5">
+            <Loader2 className="h-3 w-3 shrink-0 animate-spin text-[#4FB6B2]" aria-hidden />
+            Generating Rooms Consult note…
+          </span>
+        </div>
+      )}
+
       {viewMode === 'preview' ? (
-        <div className="min-h-0 flex-1 overflow-y-auto bg-[#F7F9FB] px-1.5 py-1 md:bg-[#F7F9FB] md:px-2 md:py-2 sm:px-3">
-          <p className="sr-only">Document preview — matches print or DOCX export.</p>
-          <article className="mx-auto max-w-[48rem] select-text rounded-[10px] border border-[#E5E7EB] bg-white px-3 py-3 font-serif text-[14px] leading-relaxed text-[#1F2937] shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:px-8 sm:py-6 md:rounded-sm md:px-8 md:py-6 md:text-[15px] md:text-[#1F2937] md:shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
-            <h1 className="mb-2 border-b border-[#E5E7EB] pb-1.5 font-sans text-base font-bold tracking-tight text-[#1F2937] md:mb-4 md:pb-2 md:text-lg md:text-[#1F2937] sm:text-xl">
-              {activeNote.title || 'Untitled note'}
-            </h1>
-            {fields.length === 0 ? (
-              <p className="font-sans text-sm italic text-[#9CA3AF] md:text-[#6B7280]">No structured content. Switch to Edit to add text.</p>
-            ) : (
-              <div className="space-y-3 md:space-y-4">
-                {fields.map((field, idx) => (
-                  <section key={idx} className="border-b border-[#E5E7EB] pb-2 last:border-0 last:pb-0 md:border-[#F1F5F9] md:pb-3">
-                    {field.label ? (
-                      <>
-                        <h3 className="mb-0.5 font-sans text-[10px] font-bold uppercase tracking-wider text-[#9CA3AF] md:mb-1 md:text-[11px] md:text-[#6B7280]">
-                          {field.label}
-                        </h3>
-                        <div className="whitespace-pre-wrap text-[#1F2937] md:text-[#1F2937]">{field.body || '—'}</div>
-                      </>
-                    ) : (
-                      <div className="whitespace-pre-wrap text-[#1F2937] md:text-[#1F2937]">{field.body}</div>
-                    )}
-                  </section>
-                ))}
-              </div>
-            )}
-          </article>
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#F7F9FB] px-1.5 py-1 md:px-2 md:py-2 sm:px-3">
+          <p className="sr-only">PDF preview of the note as exported.</p>
+          {previewPdfLoading && !previewPdfUrl ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 py-12 text-[#6B7280]">
+              <Loader2 className="h-8 w-8 animate-spin text-[#4FB6B2]" aria-hidden />
+              <span className="text-xs font-medium">Loading PDF preview…</span>
+            </div>
+          ) : previewPdfError ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 py-8 text-center">
+              <p className="text-sm text-[#6B7280]">{previewPdfError}</p>
+              <button
+                type="button"
+                onClick={onRetryPreviewPdf}
+                className="rounded-[10px] bg-[#4FB6B2] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#3FA6A2]"
+              >
+                Retry preview
+              </button>
+            </div>
+          ) : previewPdfUrl ? (
+            <div className="relative mx-auto flex h-full min-h-[50dvh] w-full max-w-[52rem] flex-1 flex-col overflow-hidden rounded-[10px] border border-[#E5E7EB] bg-[#525659] shadow-[0_1px_2px_rgba(0,0,0,0.06)] md:min-h-0 md:rounded-lg">
+              {previewPdfLoading ? (
+                <div
+                  className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-white/80 backdrop-blur-[1px]"
+                  aria-live="polite"
+                >
+                  <Loader2 className="h-7 w-7 animate-spin text-[#4FB6B2]" aria-hidden />
+                  <span className="text-xs font-medium text-[#6B7280]">Updating preview…</span>
+                </div>
+              ) : null}
+              <iframe
+                title="Note PDF preview"
+                src={`${previewPdfUrl}#view=FitH`}
+                className="h-full min-h-[48dvh] w-full flex-1 border-0 bg-white md:min-h-0"
+              />
+            </div>
+          ) : (
+            <div className="flex flex-1 flex-col items-center justify-center py-8 text-[#9CA3AF]">
+              <p className="text-center text-xs">Preview will appear when the note has content.</p>
+            </div>
+          )}
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden font-sans">

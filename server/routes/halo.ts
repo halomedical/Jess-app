@@ -3,6 +3,7 @@ import { requireAuth } from '../middleware/requireAuth';
 import { config } from '../config';
 import { getTemplates, generateNote } from '../services/haloApi';
 import { getOrCreatePatientNotesFolder, uploadToDrive } from '../services/drive';
+import { renderClinicalTextToPdfBuffer } from '../services/notePdf';
 
 const router = Router();
 router.use(requireAuth);
@@ -75,6 +76,27 @@ router.post('/generate-note', async (req: Request, res: Response) => {
     const message = err instanceof Error ? err.message : 'Note generation failed.';
     const status = message.includes('502') ? 502 : message.includes('Invalid') ? 400 : 500;
     res.status(status).json({ error: message });
+  }
+});
+
+// POST /api/halo/note-preview-pdf
+// Body: { text: string } — same full string as DOCX path (chart + note from buildNoteTextWithPatientChart).
+// Returns application/pdf bytes for inline preview.
+router.post('/note-preview-pdf', async (req: Request, res: Response) => {
+  try {
+    const { text } = req.body as { text?: string };
+    if (typeof text !== 'string' || !text.trim()) {
+      res.status(400).json({ error: 'text is required.' });
+      return;
+    }
+    const buffer = await renderClinicalTextToPdfBuffer(text);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(buffer);
+  } catch (err) {
+    console.error('note-preview-pdf error:', err);
+    const message = err instanceof Error ? err.message : 'PDF preview failed.';
+    res.status(500).json({ error: message });
   }
 });
 

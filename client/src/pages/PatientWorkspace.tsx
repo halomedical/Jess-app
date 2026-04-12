@@ -221,6 +221,12 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const runWorkspaceNoteGenerationRef = useRef<((opts?: { source?: 'auto' | 'manual' }) => Promise<void>) | null>(null);
   /** Rooms Consult generation only — do not conflate with folder/file LOADING. */
   const [workspaceNoteGenerating, setWorkspaceNoteGenerating] = useState(false);
+  /** Last generation failure while dictation is still pending (retry without losing transcript). */
+  const [workspaceGenerationError, setWorkspaceGenerationError] = useState<string | null>(null);
+  /** Matches PDF blob to note content — avoids duplicate fetches after auto-gen + debounced effect. */
+  const lastSuccessfulPreviewKeyRef = useRef<string>('');
+  /** While true, debounced PDF effect must not schedule (auto-gen just queued loadPreviewPdfForNote). */
+  const suppressDebouncedPdfRefreshRef = useRef(false);
 
   const setWorkspaceTab = useCallback((tab: WorkspaceTab) => {
     setActiveTab(tab);
@@ -925,48 +931,73 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       previewPdfUrlRef.current = null;
     }
     setPreviewPdfUrl(null);
+    lastSuccessfulPreviewKeyRef.current = '';
   }, []);
 
-  const loadPreviewPdf = useCallback(
-    async (noteIndex: number) => {
-      pdfAbortRef.current?.abort();
-      const ac = new AbortController();
-      pdfAbortRef.current = ac;
-      const gen = ++pdfFetchGenRef.current;
-
-      const list = notesRef.current;
+  /** Single PDF pipeline: always builds from this HaloNote + current patient (source of truth for Preview). */
+  const loadPreviewPdfForNote = useCallback(
+    async (note: HaloNote, ac?: AbortSignal) => {
       const p = patientRef.current;
-      const note = list[noteIndex];
-      if (!note) {
-        revokePreviewPdf();
-        return;
-      }
       const plain = buildNotePlainText(note);
       if (!plain.trim()) {
         revokePreviewPdf();
         return;
       }
-      const text = buildNotePreviewPdfText(p, note);
+      const previewKey = `${note.noteId}:${plain}`;
+      if (previewKey === lastSuccessfulPreviewKeyRef.current && previewPdfUrlRef.current) {
+        return;
+      }
 
+      let signal: AbortSignal;
+      if (ac) {
+        signal = ac;
+      } else {
+        pdfAbortRef.current?.abort();
+        const controller = new AbortController();
+        pdfAbortRef.current = controller;
+        signal = controller.signal;
+      }
+      const gen = ++pdfFetchGenRef.current;
+
+      const text = buildNotePreviewPdfText(p, note);
       setPreviewPdfLoading(true);
       setPreviewPdfError(null);
       try {
-        const blob = await fetchNotePreviewPdf(text, ac.signal);
+        const blob = await fetchNotePreviewPdf(text, signal);
         if (gen !== pdfFetchGenRef.current) return;
         const prevUrl = previewPdfUrlRef.current;
         const url = URL.createObjectURL(blob);
         previewPdfUrlRef.current = url;
         setPreviewPdfUrl(url);
         if (prevUrl) URL.revokeObjectURL(prevUrl);
+        lastSuccessfulPreviewKeyRef.current = previewKey;
       } catch (e) {
         if ((e as Error).name === 'AbortError') return;
         if (gen !== pdfFetchGenRef.current) return;
+        lastSuccessfulPreviewKeyRef.current = '';
+        if (previewPdfUrlRef.current) {
+          URL.revokeObjectURL(previewPdfUrlRef.current);
+          previewPdfUrlRef.current = null;
+        }
+        setPreviewPdfUrl(null);
         setPreviewPdfError(getErrorMessage(e));
       } finally {
         if (gen === pdfFetchGenRef.current) setPreviewPdfLoading(false);
       }
     },
     [revokePreviewPdf]
+  );
+
+  const loadPreviewPdf = useCallback(
+    async (noteIndex: number) => {
+      const note = notesRef.current[noteIndex];
+      if (!note) {
+        revokePreviewPdf();
+        return;
+      }
+      await loadPreviewPdfForNote(note);
+    },
+    [loadPreviewPdfForNote, revokePreviewPdf]
   );
 
   const runWorkspaceNoteGeneration = useCallback(
@@ -979,6 +1010,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       if (generationInFlightRef.current) return;
       generationInFlightRef.current = true;
       setWorkspaceNoteGenerating(true);
+      setWorkspaceGenerationError(null);
       const dictationForModel = stripLeadingDictationTemplateCue(rawDictation);
       const inputText = buildClinicalNoteInputFromDictation(patientRef.current, dictationForModel);
       try {
@@ -1009,14 +1041,22 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             : 'Note generated. You can edit and save as DOCX.',
           'success'
         );
+        suppressDebouncedPdfRefreshRef.current = true;
+        queueMicrotask(() => {
+          void loadPreviewPdfForNote(note).finally(() => {
+            suppressDebouncedPdfRefreshRef.current = false;
+          });
+        });
       } catch (err) {
-        onToast(getErrorMessage(err), 'error');
+        const msg = getErrorMessage(err);
+        setWorkspaceGenerationError(msg);
+        onToast(msg, 'error');
       } finally {
         generationInFlightRef.current = false;
         setWorkspaceNoteGenerating(false);
       }
     },
-    [onToast]
+    [onToast, loadPreviewPdfForNote]
   );
 
   const handleGenerateFromTemplates = useCallback(() => {
@@ -1026,8 +1066,17 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   runWorkspaceNoteGenerationRef.current = runWorkspaceNoteGeneration;
 
   const handleRetryPreviewPdf = useCallback(() => {
+    lastSuccessfulPreviewKeyRef.current = '';
     void loadPreviewPdf(activeNoteIndex);
   }, [loadPreviewPdf, activeNoteIndex]);
+
+  /** Single key for active note content — drives debounced PDF refresh when user edits or switches notes. */
+  const editorPreviewSourceKey = useMemo(() => {
+    const n = notes[activeNoteIndex];
+    if (!n) return '';
+    const p = buildNotePlainText(n);
+    return p.trim() ? `${n.noteId}:${p}` : '';
+  }, [notes, activeNoteIndex]);
 
   useEffect(() => {
     pdfFetchGenRef.current += 1;
@@ -1039,27 +1088,30 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     setPreviewPdfUrl(null);
     setPreviewPdfLoading(false);
     setPreviewPdfError(null);
+    lastSuccessfulPreviewKeyRef.current = '';
+    suppressDebouncedPdfRefreshRef.current = false;
   }, [patient.id]);
 
   useEffect(() => {
     if (activeTab !== 'notes') return;
     if (pendingTranscript) return;
+    if (suppressDebouncedPdfRefreshRef.current) return;
     if (notes.length === 0) {
       revokePreviewPdf();
       return;
     }
-    const note = notes[activeNoteIndex];
-    if (!note) return;
-    const plain = buildNotePlainText(note);
-    if (!plain.trim()) {
+    if (!editorPreviewSourceKey) {
       revokePreviewPdf();
+      return;
+    }
+    if (editorPreviewSourceKey === lastSuccessfulPreviewKeyRef.current) {
       return;
     }
     const t = window.setTimeout(() => {
       void loadPreviewPdf(activeNoteIndex);
-    }, 450);
+    }, 400);
     return () => clearTimeout(t);
-  }, [activeTab, pendingTranscript, notes, activeNoteIndex, loadPreviewPdf, revokePreviewPdf]);
+  }, [activeTab, pendingTranscript, editorPreviewSourceKey, activeNoteIndex, loadPreviewPdf, revokePreviewPdf]);
 
   useEffect(() => {
     if (notes.length === 0) return;
@@ -1592,6 +1644,18 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                       </>
                     )}
                   </p>
+                  {workspaceGenerationError ? (
+                    <p className="mt-2 rounded-[10px] border border-rose-200 bg-rose-50 px-2 py-1.5 text-[10px] text-rose-800 md:text-[11px]">
+                      {workspaceGenerationError}{' '}
+                      <button
+                        type="button"
+                        className="font-semibold text-[#4FB6B2] underline"
+                        onClick={() => void handleGenerateFromTemplates()}
+                      >
+                        Retry
+                      </button>
+                    </p>
+                  ) : null}
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5 md:mt-2 md:gap-2">
                     <button
                       type="button"
@@ -1606,6 +1670,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                       onClick={() => {
                         setPendingTranscript(null);
                         pendingTranscriptRef.current = null;
+                        setWorkspaceGenerationError(null);
                       }}
                       disabled={workspaceNoteGenerating}
                       className="rounded-[10px] border border-[#E5E7EB] bg-white px-2.5 py-1 text-[10px] font-medium text-[#6B7280] disabled:opacity-50 md:rounded-lg md:px-3 md:py-1.5 md:text-xs md:text-[#6B7280]"

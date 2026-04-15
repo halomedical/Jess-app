@@ -307,11 +307,11 @@ export const analyzeAndRenameImage = async (base64Image: string): Promise<string
   return data.filename;
 };
 
-export const extractEchoHandwriting = async (params: {
-  base64Image: string;
+export const extractEchoReportText = async (params: {
+  base64Data: string;
   mimeType?: string;
 }): Promise<string> => {
-  const data = await request<{ text: string }>('/api/ai/echo-handwriting', {
+  const data = await request<{ text: string }>('/api/ai/echo-report-extract', {
     method: 'POST',
     body: JSON.stringify(params),
   });

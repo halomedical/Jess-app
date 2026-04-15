@@ -113,7 +113,42 @@ router.post('/analyze-image', async (req: Request, res: Response) => {
   }
 });
 
-// POST /echo-handwriting — extract handwritten text from Echo Report scans (image only)
+async function extractEchoReportTextFromBase64(input: {
+  base64: string;
+  mimeType: string;
+}): Promise<string> {
+  const mt = (input.mimeType || '').trim().toLowerCase();
+  if (mt === 'application/pdf') {
+    const { PDFParse } = await import('pdf-parse');
+    const buf = Buffer.from(input.base64, 'base64');
+    const parser = new PDFParse({ data: new Uint8Array(buf) });
+    const result = await parser.getText();
+    await parser.destroy();
+    return (result.text || '').trim();
+  }
+  // images (including unknown): use Gemini vision
+  return (await analyzeImage(echoHandwritingExtractPrompt(), input.base64, input.mimeType)).trim();
+}
+
+// POST /echo-report-extract — extract text from an Echo report upload (PDF or image)
+router.post('/echo-report-extract', async (req: Request, res: Response) => {
+  try {
+    const { base64Data, mimeType } = req.body as { base64Data?: string; mimeType?: string };
+    if (!base64Data || typeof base64Data !== 'string') {
+      res.status(400).json({ error: 'base64Data is required.' });
+      return;
+    }
+    const cleanBase64 = base64Data.split(',')[1] || base64Data;
+    const mt = (mimeType || 'image/jpeg').trim() || 'image/jpeg';
+    const text = await extractEchoReportTextFromBase64({ base64: cleanBase64, mimeType: mt });
+    res.json({ text: (text || '').trim() });
+  } catch (err) {
+    console.error('Echo report extract error:', err);
+    res.status(500).json({ error: 'Could not extract text from echo report.' });
+  }
+});
+
+// Backwards-compatible alias (older client builds)
 router.post('/echo-handwriting', async (req: Request, res: Response) => {
   try {
     const { base64Image, mimeType } = req.body as { base64Image?: string; mimeType?: string };
@@ -123,11 +158,11 @@ router.post('/echo-handwriting', async (req: Request, res: Response) => {
     }
     const cleanBase64 = base64Image.split(',')[1] || base64Image;
     const mt = (mimeType || 'image/jpeg').trim() || 'image/jpeg';
-    const text = await analyzeImage(echoHandwritingExtractPrompt(), cleanBase64, mt);
+    const text = await extractEchoReportTextFromBase64({ base64: cleanBase64, mimeType: mt });
     res.json({ text: (text || '').trim() });
   } catch (err) {
     console.error('Echo handwriting error:', err);
-    res.status(500).json({ error: 'Could not extract handwriting.' });
+    res.status(500).json({ error: 'Could not extract text from echo report.' });
   }
 });
 

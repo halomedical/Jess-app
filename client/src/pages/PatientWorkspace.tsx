@@ -17,7 +17,7 @@ import { AppStatus, FOLDER_MIME_TYPE } from '../../../shared/types';
 import {
   fetchFiles, fetchFilesFirstPage, fetchFilesPage, fetchFolderContents, uploadFile, updatePatient,
   updateFileMetadata, generatePatientSummary, analyzeAndRenameImage,
-  extractEchoHandwriting,
+  extractEchoReportText,
   extractLabAlerts, deleteFile, createFolder, askHaloStream,
   generateNotePreview, saveNoteAsDocx, sendClinicalNoteEmail, sendWorkspaceFileEmail,
   fetchWorkspaceDraft, saveWorkspaceDraft, fetchNotePreviewPdf,
@@ -367,7 +367,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [uploadPickerLoading, setUploadPickerLoading] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const noteSourceFileInputRef = useRef<HTMLInputElement>(null);
   const uploadIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const generationTargetNoteIdRef = useRef<string | null>(null);
 
   const isFolder = (file: DriveFile): boolean => file.mimeType === FOLDER_MIME_TYPE;
 
@@ -561,10 +563,86 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         setActiveNoteIndex(newIdx);
         return [...prev, note];
       });
+      generationTargetNoteIdRef.current = note.noteId;
       setWorkspaceTab('notes');
       onToast(`${label} note created.`, 'success');
     },
     [activeTab, currentFolderId, loadFolderContents, onToast, patient.id]
+  );
+
+  const handleFillActiveNoteFromDictation = useCallback(() => {
+    const n = notes[activeNoteIndex];
+    if (!n) return;
+    generationTargetNoteIdRef.current = n.noteId;
+    onToast('Start dictation. When you press Finish, this note will be filled.', 'info');
+  }, [notes, activeNoteIndex, onToast]);
+
+  const handleEchoUploadForActiveNote = useCallback(() => {
+    const n = notes[activeNoteIndex];
+    if (!n) return;
+    generationTargetNoteIdRef.current = n.noteId;
+    noteSourceFileInputRef.current?.click();
+  }, [notes, activeNoteIndex]);
+
+  const handleNoteSourceFileUpload = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const input = e.target;
+      if (!input.files || input.files.length === 0) return;
+      const file = input.files[0];
+      const active = notes[activeNoteIndex];
+      if (!active) return;
+      if (active.template_id !== ECHO_TEMPLATE_ID) {
+        onToast('Upload-to-fill is currently supported for Echo Report notes.', 'info');
+        input.value = '';
+        return;
+      }
+      try {
+        // Upload file to Drive for recordkeeping (do not block extraction if upload fails)
+        uploadFile(patient.id, file, file.name, { haloTemplateId: ECHO_TEMPLATE_ID }).catch(() => {});
+
+        const base64Data = await new Promise<string>((resolve, reject) => {
+          const r = new FileReader();
+          r.onloadend = () => {
+            const result = r.result as string;
+            const i = result.indexOf(',');
+            resolve(i >= 0 ? result.slice(i + 1) : result);
+          };
+          r.onerror = () => reject(r.error ?? new Error('Read failed'));
+          r.readAsDataURL(file);
+        });
+
+        onToast('Extracting text from echo report…', 'info');
+        const extracted = (await extractEchoReportText({
+          base64Data,
+          mimeType: file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
+        })).trim();
+        if (!extracted) {
+          onToast('No text detected in echo report.', 'info');
+          input.value = '';
+          return;
+        }
+
+        const res = await generateNotePreview({ template_id: ECHO_TEMPLATE_ID, text: extracted });
+        const first = res.notes?.[0];
+        const content = first?.content?.trim() ? first.content : extracted;
+        const now = new Date().toISOString();
+        const updated: HaloNote = {
+          ...active,
+          content,
+          template_id: ECHO_TEMPLATE_ID,
+          dirty: false,
+          lastSavedAt: now,
+          ...(first?.fields && first.fields.length > 0 ? { fields: first.fields } : {}),
+        };
+        setNotes((prev) => prev.map((n) => (n.noteId === active.noteId ? updated : n)));
+        onToast('Echo Report note filled from uploaded report.', 'success');
+      } catch (err) {
+        onToast(getErrorMessage(err), 'error');
+      } finally {
+        input.value = '';
+      }
+    },
+    [activeNoteIndex, notes, onToast, patient.id]
   );
 
   const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null);
@@ -625,14 +703,26 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         await loadFolderContents(currentFolderId);
         onToast(`File uploaded to "${uploadTargetLabel}".`, 'success');
 
-        // Echo Report: if the upload is an image scan, extract handwriting and auto-generate an Echo note.
-        if (haloTemplateId === ECHO_TEMPLATE_ID && imageBase64) {
+        // Echo Report: if the upload is a scan (image/PDF), extract text and auto-generate an Echo note.
+        if (haloTemplateId === ECHO_TEMPLATE_ID) {
           try {
             setStatus(AppStatus.ANALYZING);
-            setUploadMessage('Extracting handwriting from Echo report…');
-            const extracted = (await extractEchoHandwriting({
-              base64Image: imageBase64,
-              mimeType: file.type || 'image/jpeg',
+            setUploadMessage('Extracting text from Echo report…');
+            const base64Data =
+              imageBase64 ??
+              (await new Promise<string>((resolve, reject) => {
+                const r = new FileReader();
+                r.onloadend = () => {
+                  const result = r.result as string;
+                  const i = result.indexOf(',');
+                  resolve(i >= 0 ? result.slice(i + 1) : result);
+                };
+                r.onerror = () => reject(r.error ?? new Error('Read failed'));
+                r.readAsDataURL(file);
+              }));
+            const extracted = (await extractEchoReportText({
+              base64Data,
+              mimeType: file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
             })).trim();
             if (extracted) {
               setUploadMessage('Generating Echo Report note…');
@@ -657,10 +747,10 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               });
               onToast('Echo Report note generated from handwriting.', 'success');
             } else {
-              onToast('No handwriting detected in Echo report image.', 'info');
+              onToast('No text detected in Echo report.', 'info');
             }
           } catch (e) {
-            onToast(`Echo handwriting extraction failed: ${getErrorMessage(e)}`, 'error');
+            onToast(`Echo report extraction failed: ${getErrorMessage(e)}`, 'error');
           }
         }
       } catch (err) {
@@ -1114,38 +1204,64 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       setWorkspaceNoteGenerating(true);
       setWorkspaceGenerationError(null);
       const dictationForModel = stripLeadingDictationTemplateCue(rawDictation);
+      const targetId = generationTargetNoteIdRef.current;
+      const targetNote =
+        targetId ? notesRef.current.find((n) => n.noteId === targetId) : null;
+      const templateForRun = targetNote?.template_id || WORKSPACE_TEMPLATE_ID;
       const inputText = buildClinicalNoteInputFromDictation(patientRef.current, dictationForModel);
       try {
-        const res = await generateNotePreview({ template_id: WORKSPACE_TEMPLATE_ID, text: inputText });
+        const res = await generateNotePreview({ template_id: templateForRun, text: inputText });
         const first = res.notes?.[0];
         const content = first?.content?.trim() ? first.content : dictationForModel;
         const createdAt = new Date().toISOString();
-        const note: HaloNote = {
-          noteId: first?.noteId ?? `note-${WORKSPACE_TEMPLATE_ID}-${Date.now()}`,
-          title: `${WORKSPACE_TEMPLATE_LABEL} ${formatDocumentDateDisplay()}`,
-          content,
-          template_id: WORKSPACE_TEMPLATE_ID,
-          createdAt,
-          lastSavedAt: createdAt,
-          dirty: false,
-          ...(first?.fields && first.fields.length > 0 ? { fields: first.fields } : {}),
-        };
-        setNotes((prev) => {
-          const newIdx = prev.length;
-          setActiveNoteIndex(newIdx);
-          return [...prev, note];
-        });
+        const label = templateForRun === ECHO_TEMPLATE_ID ? 'Echo Report' : WORKSPACE_TEMPLATE_LABEL;
+
+        // If there is an active "new note" target that is still empty, fill it instead of creating a duplicate.
+        const targetIsEmpty = !!(targetNote && !buildNotePlainText(targetNote).trim());
+        let noteToPreview: HaloNote;
+        if (targetNote && targetIsEmpty) {
+          const updated: HaloNote = {
+            ...targetNote,
+            title: targetNote.title || `${label} ${formatDocumentDateDisplay()}`,
+            content,
+            template_id: templateForRun,
+            lastSavedAt: createdAt,
+            dirty: false,
+            ...(first?.fields && first.fields.length > 0 ? { fields: first.fields } : {}),
+          };
+          setNotes((prev) => prev.map((n) => (n.noteId === targetNote.noteId ? updated : n)));
+          noteToPreview = updated;
+        } else {
+          const note: HaloNote = {
+            noteId: first?.noteId ?? `note-${templateForRun}-${Date.now()}`,
+            title: `${label} ${formatDocumentDateDisplay()}`,
+            content,
+            template_id: templateForRun,
+            createdAt,
+            lastSavedAt: createdAt,
+            dirty: false,
+            ...(first?.fields && first.fields.length > 0 ? { fields: first.fields } : {}),
+          };
+          setNotes((prev) => {
+            const newIdx = prev.length;
+            setActiveNoteIndex(newIdx);
+            return [...prev, note];
+          });
+          noteToPreview = note;
+        }
+
+        generationTargetNoteIdRef.current = null;
         setPendingTranscript(null);
         pendingTranscriptRef.current = null;
         onToast(
           opts?.source === 'auto'
-            ? 'Rooms Consult note generated.'
+            ? `${label} note generated.`
             : 'Note generated. You can edit and save as DOCX.',
           'success'
         );
         suppressDebouncedPdfRefreshRef.current = true;
         queueMicrotask(() => {
-          void loadPreviewPdfForNote(note).finally(() => {
+          void loadPreviewPdfForNote(noteToPreview).finally(() => {
             suppressDebouncedPdfRefreshRef.current = false;
           });
         });
@@ -1847,23 +1963,66 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                 </div>
               </div>
             ) : (
-              <NoteEditor
-                notes={notes}
-                activeIndex={activeNoteIndex}
-                onActiveIndexChange={setActiveNoteIndex}
-                onNoteChange={handleNoteChange}
-                status={status}
-                onSaveAsDocx={handleSaveAsDocx}
-                onSaveAll={handleSaveAll}
-                onEmail={handleEmail}
-                savingNoteIndex={savingNoteIndex}
-                docxExportPhase={docxTask.phase}
-                isGeneratingNote={workspaceNoteGenerating}
-                previewPdfUrl={previewPdfUrl}
-                previewPdfLoading={previewPdfLoading}
-                previewPdfError={previewPdfError}
-                onRetryPreviewPdf={handleRetryPreviewPdf}
-              />
+              <div className="flex min-h-0 flex-1 flex-col gap-2">
+                <input
+                  ref={noteSourceFileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={handleNoteSourceFileUpload}
+                  accept="image/*,application/pdf"
+                />
+                {(() => {
+                  const n = notes[activeNoteIndex];
+                  const isEmpty = !n || !buildNotePlainText(n).trim();
+                  if (!n || !isEmpty) return null;
+                  const isEcho = n.template_id === ECHO_TEMPLATE_ID;
+                  return (
+                    <div className="rounded-[10px] border border-[#E5E7EB] bg-white px-3 py-2 shadow-sm">
+                      <p className="text-[11px] font-bold text-[#1F2937]">
+                        {isEcho ? 'Echo Report note' : 'Rooms Consult note'} is empty
+                      </p>
+                      <p className="mt-0.5 text-[10px] text-[#6B7280]">
+                        Use dictation to fill this note, or {isEcho ? 'upload the echo report to extract text and fill the template.' : 'paste/type in Edit.'}
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={handleFillActiveNoteFromDictation}
+                          className="min-h-[40px] rounded-[10px] bg-[#4FB6B2] px-3 py-2 text-[11px] font-bold text-white hover:bg-[#3FA6A2]"
+                        >
+                          Dictate for this note
+                        </button>
+                        {isEcho ? (
+                          <button
+                            type="button"
+                            onClick={handleEchoUploadForActiveNote}
+                            className="min-h-[40px] rounded-[10px] border border-[#E5E7EB] bg-white px-3 py-2 text-[11px] font-bold text-[#1F2937] hover:bg-[#F1F5F9]"
+                          >
+                            Upload echo report…
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })()}
+                <NoteEditor
+                  notes={notes}
+                  activeIndex={activeNoteIndex}
+                  onActiveIndexChange={setActiveNoteIndex}
+                  onNoteChange={handleNoteChange}
+                  status={status}
+                  onSaveAsDocx={handleSaveAsDocx}
+                  onSaveAll={handleSaveAll}
+                  onEmail={handleEmail}
+                  savingNoteIndex={savingNoteIndex}
+                  docxExportPhase={docxTask.phase}
+                  isGeneratingNote={workspaceNoteGenerating}
+                  previewPdfUrl={previewPdfUrl}
+                  previewPdfLoading={previewPdfLoading}
+                  previewPdfError={previewPdfError}
+                  onRetryPreviewPdf={handleRetryPreviewPdf}
+                />
+              </div>
             )
           ) : (
             <div className="flex min-h-0 flex-1 flex-col py-2 md:py-3">

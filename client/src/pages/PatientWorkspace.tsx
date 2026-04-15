@@ -26,6 +26,7 @@ import {
   Upload, Calendar, Clock, CheckCircle2, ChevronLeft, ChevronDown, Loader2,
   CloudUpload, Pencil, X, Trash2, FolderOpen, MessageCircle,
   FolderPlus, ChevronRight, Mail, Phone, Hash, Menu,
+  Plus,
 } from 'lucide-react';
 import { SmartSummary } from '../features/smart-summary/SmartSummary';
 import { LabAlerts } from '../features/lab-alerts/LabAlerts';
@@ -364,6 +365,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [uploadTargetLabel, setUploadTargetLabel] = useState<string>(patient.name);
   const [uploadPickerFolders, setUploadPickerFolders] = useState<DriveFile[]>([]);
   const [uploadPickerLoading, setUploadPickerLoading] = useState(false);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -526,6 +528,44 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     setShowUploadPicker(false);
     fileInputRef.current?.click();
   };
+
+  const handleQuickAddNewNote = useCallback(
+    async (templateId: string) => {
+      setShowQuickAdd(false);
+      const createdAt = new Date().toISOString();
+      const label = templateId === ECHO_TEMPLATE_ID ? 'Echo Report' : 'Rooms Consult';
+      const note: HaloNote = {
+        noteId: `note-${templateId}-${Date.now()}`,
+        title: `${label} ${formatDocumentDateDisplay()}`,
+        content: '',
+        template_id: templateId,
+        createdAt,
+        lastSavedAt: createdAt,
+        dirty: true,
+      };
+
+      // Best-effort: create a visible patient notes folder for today in Drive.
+      // This does not affect editor state if it fails.
+      try {
+        const folderName = `Patient Notes - ${new Date().toISOString().slice(0, 10)}`;
+        await createFolder(patient.id, folderName);
+        if (activeTab === 'overview') {
+          await loadFolderContents(currentFolderId);
+        }
+      } catch {
+        /* ignore */
+      }
+
+      setNotes((prev) => {
+        const newIdx = prev.length;
+        setActiveNoteIndex(newIdx);
+        return [...prev, note];
+      });
+      setWorkspaceTab('notes');
+      onToast(`${label} note created.`, 'success');
+    },
+    [activeTab, currentFolderId, loadFolderContents, onToast, patient.id]
+  );
 
   const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null);
   const [showUploadTemplatePicker, setShowUploadTemplatePicker] = useState(false);
@@ -1513,6 +1553,15 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                     {recordingToolbar}
                     <button
                       type="button"
+                      onClick={() => setShowQuickAdd(true)}
+                      className="flex min-h-[44px] w-full shrink-0 items-center justify-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-4 py-2.5 text-sm font-bold text-[#1F2937] shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition-all hover:bg-[#F1F5F9] sm:w-auto"
+                      title="Create a new note or upload a file"
+                      aria-label="New note or upload"
+                    >
+                      <Plus className="h-4 w-4 text-[#4FB6B2]" /> New
+                    </button>
+                    <button
+                      type="button"
                       onClick={openUploadPicker}
                       className="flex min-h-[44px] w-full shrink-0 items-center justify-center gap-2 rounded-lg bg-[#4FB6B2] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition-all hover:bg-[#3FA6A2] sm:w-auto"
                     >
@@ -2064,6 +2113,52 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                 className="flex-1 px-4 py-3 rounded-xl font-medium text-[#6B7280] hover:bg-[#F1F5F9] transition"
               >
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QUICK ADD MODAL: new note or upload file */}
+      {showQuickAdd && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-[#1F2937]/25 backdrop-blur-[2px] p-0 sm:p-4 safe-pad-b">
+          <div className="bg-white rounded-t-[12px] sm:rounded-[12px] border border-[#E5E7EB] shadow-[0_1px_2px_rgba(0,0,0,0.05)] p-6 w-full max-w-sm max-h-[90dvh] overflow-y-auto sm:m-4">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-lg font-bold text-[#1F2937]">Add</h3>
+              <button
+                type="button"
+                onClick={() => setShowQuickAdd(false)}
+                className="text-[#9CA3AF] hover:text-[#1F2937] p-1 rounded-full hover:bg-[#F1F5F9] transition"
+                aria-label="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <p className="text-xs text-[#6B7280] mb-4">Create a new note or upload a file.</p>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => void handleQuickAddNewNote(ROOMS_CONSULT_TEMPLATE_ID)}
+                className="w-full min-h-[44px] rounded-xl border border-[#E5E7EB] bg-white px-4 py-3 text-left font-semibold text-[#1F2937] hover:bg-[#F1F5F9] transition"
+              >
+                New Rooms Consult note
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleQuickAddNewNote(ECHO_TEMPLATE_ID)}
+                className="w-full min-h-[44px] rounded-xl border border-[#E5E7EB] bg-white px-4 py-3 text-left font-semibold text-[#1F2937] hover:bg-[#F1F5F9] transition"
+              >
+                New Echo Report note
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowQuickAdd(false);
+                  void openUploadPicker();
+                }}
+                className="w-full min-h-[44px] rounded-xl bg-[#4FB6B2] px-4 py-3 text-left font-semibold text-white hover:bg-[#3FA6A2] transition"
+              >
+                Upload file…
               </button>
             </div>
           </div>

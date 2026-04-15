@@ -233,7 +233,12 @@ export const fetchFolderContents = async (folderId: string): Promise<DriveFile[]
   return all;
 };
 
-export const uploadFile = async (patientId: string, file: File, customName?: string) => {
+export const uploadFile = async (
+  patientId: string,
+  file: File,
+  customName?: string,
+  opts?: { haloTemplateId?: string }
+) => {
   const base64 = await fileToBase64(file);
   const fileType = resolveUploadMimeType(file);
   return request(`/api/drive/patients/${patientId}/upload`, {
@@ -242,6 +247,7 @@ export const uploadFile = async (patientId: string, file: File, customName?: str
       fileName: customName || file.name,
       fileType,
       fileData: base64,
+      ...(opts?.haloTemplateId ? { haloTemplateId: opts.haloTemplateId } : {}),
     }),
   });
 };
@@ -299,6 +305,17 @@ export const analyzeAndRenameImage = async (base64Image: string): Promise<string
     body: JSON.stringify({ base64Image }),
   });
   return data.filename;
+};
+
+export const extractEchoHandwriting = async (params: {
+  base64Image: string;
+  mimeType?: string;
+}): Promise<string> => {
+  const data = await request<{ text: string }>('/api/ai/echo-handwriting', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+  return data.text ?? '';
 };
 
 /** Transcribe audio to text only (no SOAP/note generation). Use Halo generate_note for notes. */

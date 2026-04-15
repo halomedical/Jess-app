@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { Patient, DriveFile, LabAlert, BreadcrumbItem, ChatMessage, HaloNote } from '../../../shared/types';
-import { DEFAULT_HALO_TEMPLATE_ID } from '../../../shared/haloTemplates';
+import { DEFAULT_HALO_TEMPLATE_ID, ECHO_TEMPLATE_ID, ROOMS_CONSULT_TEMPLATE_ID } from '../../../shared/haloTemplates';
 import { stripLeadingDictationTemplateCue } from '../../../shared/dictationTemplateIntent';
 
 /** Workspace note generation is fixed to Rooms Consult only. */
@@ -17,6 +17,7 @@ import { AppStatus, FOLDER_MIME_TYPE } from '../../../shared/types';
 import {
   fetchFiles, fetchFilesFirstPage, fetchFilesPage, fetchFolderContents, uploadFile, updatePatient,
   updateFileMetadata, generatePatientSummary, analyzeAndRenameImage,
+  extractEchoHandwriting,
   extractLabAlerts, deleteFile, createFolder, askHaloStream,
   generateNotePreview, saveNoteAsDocx, sendClinicalNoteEmail, sendWorkspaceFileEmail,
   fetchWorkspaceDraft, saveWorkspaceDraft, fetchNotePreviewPdf,
@@ -526,72 +527,133 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     fileInputRef.current?.click();
   };
 
+  const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null);
+  const [showUploadTemplatePicker, setShowUploadTemplatePicker] = useState(false);
+  const [pendingUploadTargetId, setPendingUploadTargetId] = useState<string | null>(null);
+
+  const performFileUpload = useCallback(
+    async (file: File, haloTemplateId: string) => {
+      const targetId = pendingUploadTargetId ?? uploadTargetFolderId;
+      if (!targetId) return;
+
+      setStatus(AppStatus.UPLOADING);
+      setUploadProgress(5);
+      setUploadMessage(`Uploading ${file.name}...`);
+
+      if (uploadIntervalRef.current) clearInterval(uploadIntervalRef.current);
+      uploadIntervalRef.current = setInterval(() => {
+        setUploadProgress((prev) => (prev >= 88 ? 88 : prev + 6));
+      }, 280);
+
+      const isImage =
+        (file.type || '').toLowerCase().startsWith('image/') ||
+        /\.(jpe?g|png|gif|webp|svg)$/i.test(file.name);
+
+      const readDataUrl = () =>
+        new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = () => reject(reader.error ?? new Error('Read failed'));
+          reader.readAsDataURL(file);
+        });
+
+      try {
+        let imageBase64: string | undefined;
+        if (isImage) {
+          setStatus(AppStatus.ANALYZING);
+          setUploadMessage('Preparing image…');
+          const dataUrl = await readDataUrl();
+          const comma = dataUrl.indexOf(',');
+          imageBase64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+        }
+
+        let finalName = file.name;
+        try {
+          if (imageBase64) {
+            setUploadMessage('HALO is analyzing visual features...');
+            finalName = await analyzeAndRenameImage(imageBase64);
+            setUploadMessage(`AI Renamed: ${finalName}`);
+          }
+        } catch {
+          /* AI rename optional */
+        }
+
+        setStatus(AppStatus.UPLOADING);
+        setUploadMessage(`Uploading ${finalName}...`);
+        await uploadFile(targetId, file, finalName, { haloTemplateId });
+        setUploadProgress(100);
+        await loadFolderContents(currentFolderId);
+        onToast(`File uploaded to "${uploadTargetLabel}".`, 'success');
+
+        // Echo Report: if the upload is an image scan, extract handwriting and auto-generate an Echo note.
+        if (haloTemplateId === ECHO_TEMPLATE_ID && imageBase64) {
+          try {
+            setStatus(AppStatus.ANALYZING);
+            setUploadMessage('Extracting handwriting from Echo report…');
+            const extracted = (await extractEchoHandwriting({
+              base64Image: imageBase64,
+              mimeType: file.type || 'image/jpeg',
+            })).trim();
+            if (extracted) {
+              setUploadMessage('Generating Echo Report note…');
+              const res = await generateNotePreview({ template_id: ECHO_TEMPLATE_ID, text: extracted });
+              const first = res.notes?.[0];
+              const content = first?.content?.trim() ? first.content : extracted;
+              const createdAt = new Date().toISOString();
+              const note: HaloNote = {
+                noteId: first?.noteId ?? `note-${ECHO_TEMPLATE_ID}-${Date.now()}`,
+                title: `Echo Report ${formatDocumentDateDisplay()}`,
+                content,
+                template_id: ECHO_TEMPLATE_ID,
+                createdAt,
+                lastSavedAt: createdAt,
+                dirty: false,
+                ...(first?.fields && first.fields.length > 0 ? { fields: first.fields } : {}),
+              };
+              setNotes((prev) => {
+                const newIdx = prev.length;
+                setActiveNoteIndex(newIdx);
+                return [...prev, note];
+              });
+              onToast('Echo Report note generated from handwriting.', 'success');
+            } else {
+              onToast('No handwriting detected in Echo report image.', 'info');
+            }
+          } catch (e) {
+            onToast(`Echo handwriting extraction failed: ${getErrorMessage(e)}`, 'error');
+          }
+        }
+      } catch (err) {
+        onToast(getErrorMessage(err), 'error');
+      } finally {
+        if (uploadIntervalRef.current) {
+          clearInterval(uploadIntervalRef.current);
+          uploadIntervalRef.current = null;
+        }
+        setStatus(AppStatus.IDLE);
+        setUploadMessage(null);
+        setUploadProgress(0);
+      }
+    },
+    [
+      pendingUploadTargetId,
+      uploadTargetFolderId,
+      uploadTargetLabel,
+      currentFolderId,
+      onToast,
+      loadFolderContents,
+    ]
+  );
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const input = e.target;
     if (!input.files || input.files.length === 0) return;
     const file = input.files[0];
-    const targetId = uploadTargetFolderId;
 
-    setStatus(AppStatus.UPLOADING);
-    setUploadProgress(5);
-    setUploadMessage(`Uploading ${file.name}...`);
-
-    if (uploadIntervalRef.current) clearInterval(uploadIntervalRef.current);
-    uploadIntervalRef.current = setInterval(() => {
-      setUploadProgress((prev) => (prev >= 88 ? 88 : prev + 6));
-    }, 280);
-
-    const isImage =
-      (file.type || '').toLowerCase().startsWith('image/') ||
-      /\.(jpe?g|png|gif|webp|svg)$/i.test(file.name);
-
-    const readDataUrl = () =>
-      new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = () => reject(reader.error ?? new Error('Read failed'));
-        reader.readAsDataURL(file);
-      });
-
-    try {
-      let imageBase64: string | undefined;
-      if (isImage) {
-        setStatus(AppStatus.ANALYZING);
-        setUploadMessage('Preparing image…');
-        const dataUrl = await readDataUrl();
-        const comma = dataUrl.indexOf(',');
-        imageBase64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
-      }
-
-      let finalName = file.name;
-      try {
-        if (imageBase64) {
-          setUploadMessage('HALO is analyzing visual features...');
-          finalName = await analyzeAndRenameImage(imageBase64);
-          setUploadMessage(`AI Renamed: ${finalName}`);
-        }
-      } catch {
-        /* AI rename optional */
-      }
-
-      setStatus(AppStatus.UPLOADING);
-      setUploadMessage(`Uploading ${finalName}...`);
-      await uploadFile(targetId, file, finalName);
-      setUploadProgress(100);
-      await loadFolderContents(currentFolderId);
-      onToast(`File uploaded to "${uploadTargetLabel}".`, 'success');
-    } catch (err) {
-      onToast(getErrorMessage(err), 'error');
-    } finally {
-      if (uploadIntervalRef.current) {
-        clearInterval(uploadIntervalRef.current);
-        uploadIntervalRef.current = null;
-      }
-      setStatus(AppStatus.IDLE);
-      setUploadMessage(null);
-      setUploadProgress(0);
-    }
-
+    // Always force a template choice for uploads (Echo Report vs Rooms Consult).
+    setPendingUploadTargetId(uploadTargetFolderId);
+    setPendingUploadFile(file);
+    setShowUploadTemplatePicker(true);
     input.value = '';
   };
 
@@ -1611,6 +1673,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               onStartEditFile={startEditFile}
               onDeleteFile={setFileToDelete}
               onViewFile={setViewingFile}
+              onUploadFile={openUploadPicker}
               onCreateFolder={() => setShowCreateFolderModal(true)}
               onEmailFile={(file) => {
                 if (!userEmail?.trim()) {
@@ -1930,6 +1993,77 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               <button onClick={() => setShowUploadPicker(false)} className="flex-1 px-4 py-3 rounded-xl font-medium text-[#6B7280] hover:bg-[#F1F5F9] transition">Cancel</button>
               <button onClick={confirmUploadDestination} className="flex-1 bg-[#4FB6B2] hover:bg-[#3FA6A2] text-white px-4 py-3 rounded-xl font-bold shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition flex items-center justify-center gap-2">
                 <Upload size={16} /> Choose File
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* UPLOAD TEMPLATE PICKER MODAL (Echo Report vs Rooms Consult) */}
+      {showUploadTemplatePicker && pendingUploadFile && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-[#1F2937]/25 backdrop-blur-[2px] p-0 sm:p-4 safe-pad-b">
+          <div className="bg-white rounded-t-[12px] sm:rounded-[12px] border border-[#E5E7EB] shadow-[0_1px_2px_rgba(0,0,0,0.05)] p-6 w-full max-w-sm max-h-[90dvh] overflow-y-auto sm:m-4">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-lg font-bold text-[#1F2937]">Select template</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUploadTemplatePicker(false);
+                  setPendingUploadFile(null);
+                  setPendingUploadTargetId(null);
+                }}
+                className="text-[#9CA3AF] hover:text-[#1F2937] p-1 rounded-full hover:bg-[#F1F5F9] transition"
+                aria-label="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <p className="text-xs text-[#6B7280] mb-4">
+              Choose how HALO should treat <span className="font-semibold text-[#1F2937]">{pendingUploadFile.name}</span>.
+            </p>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const f = pendingUploadFile;
+                  setShowUploadTemplatePicker(false);
+                  setPendingUploadFile(null);
+                  void performFileUpload(f, ECHO_TEMPLATE_ID);
+                }}
+                className="w-full min-h-[44px] rounded-xl border border-[#E5E7EB] bg-white px-4 py-3 text-left font-semibold text-[#1F2937] hover:bg-[#F1F5F9] transition"
+              >
+                Echo Report
+                <span className="block text-[11px] font-medium text-[#6B7280]">
+                  Link this upload to the Echo template.
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const f = pendingUploadFile;
+                  setShowUploadTemplatePicker(false);
+                  setPendingUploadFile(null);
+                  void performFileUpload(f, ROOMS_CONSULT_TEMPLATE_ID);
+                }}
+                className="w-full min-h-[44px] rounded-xl border border-[#E5E7EB] bg-white px-4 py-3 text-left font-semibold text-[#1F2937] hover:bg-[#F1F5F9] transition"
+              >
+                Rooms Consult
+                <span className="block text-[11px] font-medium text-[#6B7280]">
+                  Link this upload to the Rooms Consult template.
+                </span>
+              </button>
+            </div>
+            <div className="flex gap-3 pt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUploadTemplatePicker(false);
+                  setPendingUploadFile(null);
+                  setPendingUploadTargetId(null);
+                }}
+                className="flex-1 px-4 py-3 rounded-xl font-medium text-[#6B7280] hover:bg-[#F1F5F9] transition"
+              >
+                Cancel
               </button>
             </div>
           </div>

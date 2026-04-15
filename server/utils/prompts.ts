@@ -25,6 +25,20 @@ export function imageAnalysisPrompt(): string {
   return `Analyze this medical image. Generate a filename (snake_case) ending in .jpg. Return ONLY the filename.`;
 }
 
+export function echoHandwritingExtractPrompt(): string {
+  return `You are a clinical data extraction assistant.
+
+This image is an echocardiography report that may contain handwritten notes and measurements.
+
+Task:
+- Extract ALL clinically relevant handwritten text and numbers as plain text.
+- Keep the original order as much as possible.
+- If you see common echo measurements, keep units and labels (e.g. LVIDd, LVIDs, EF, LA, RV, LVOT, AV, MV, TR, PASP).
+- Do NOT invent values. If unreadable, write "[illegible]".
+
+Return ONLY the extracted plain text (no JSON, no markdown).`;
+}
+
 export function searchPrompt(query: string, context: string): string {
   return `
     You are a medical assistant search engine. Search by patient name, date of birth, file names, AND file contents.

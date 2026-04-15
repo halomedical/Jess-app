@@ -491,7 +491,7 @@ router.get('/patients/:id/files', async (req: Request, res: Response) => {
 
     let url = `/files?q=${encodeURIComponent(
       `'${req.params.id}' in parents and trashed=false`
-    )}&fields=files(id,name,mimeType,webViewLink,thumbnailLink,createdTime),nextPageToken&pageSize=${pageSize}`;
+    )}&fields=files(id,name,mimeType,webViewLink,thumbnailLink,createdTime,appProperties),nextPageToken&pageSize=${pageSize}`;
 
     if (pageToken) {
       url += `&pageToken=${encodeURIComponent(pageToken)}`;
@@ -506,6 +506,10 @@ router.get('/patients/:id/files', async (req: Request, res: Response) => {
       url: f.webViewLink ?? '',
       thumbnail: f.thumbnailLink ?? '',
       createdTime: f.createdTime?.split('T')[0] ?? '',
+      haloTemplateId:
+        typeof (f as { appProperties?: Record<string, unknown> }).appProperties?.haloTemplateId === 'string'
+          ? ((f as { appProperties?: Record<string, unknown> }).appProperties!.haloTemplateId as string)
+          : undefined,
     }));
 
     res.json({ files, nextPage: data.nextPageToken || null });
@@ -523,6 +527,7 @@ router.post('/patients/:id/upload', async (req: Request, res: Response) => {
     const fileName = sanitizeString(req.body.fileName, 255);
     const fileTypeRaw = sanitizeString(req.body.fileType, 100);
     const fileData = req.body.fileData as string;
+    const haloTemplateId = sanitizeString(req.body.haloTemplateId, 80);
 
     if (!fileName) {
       res.status(400).json({ error: 'File name is required.' });
@@ -561,6 +566,7 @@ router.post('/patients/:id/upload', async (req: Request, res: Response) => {
       name: fileName,
       parents: [parentFolderId],
       mimeType: fileType,
+      ...(haloTemplateId ? { appProperties: { haloTemplateId } } : {}),
     };
 
     const boundary = 'halo_upload_boundary_' + Math.random().toString(36).slice(2);
@@ -592,6 +598,7 @@ router.post('/patients/:id/upload', async (req: Request, res: Response) => {
       mimeType: data.mimeType,
       url: data.webViewLink ?? '',
       createdTime: new Date().toISOString().split('T')[0],
+      ...(haloTemplateId ? { haloTemplateId } : {}),
     });
   } catch (err) {
     console.error('Upload error:', err);

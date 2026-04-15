@@ -7,9 +7,11 @@ import { Toast } from './components/Toast';
 import { SettingsModal } from './components/SettingsModal';
 import { checkAuth, getLoginUrl, logout, fetchAllPatients, createPatient, deletePatient, loadSettings, saveSettings, ApiError } from './services/api';
 import type { Patient, UserSettings } from '../../shared/types';
-import { LogIn, Loader, X, UserPlus, Calendar, Users, AlertTriangle, Trash2 } from 'lucide-react';
+import { LogIn, Loader, X, UserPlus, Calendar, Users, AlertTriangle, Trash2, ScanLine, Mic } from 'lucide-react';
 import { SignInBranding } from './components/SignInBranding';
 import { EcgRhythmStrip } from './components/EcgRhythmStrip';
+import { parsePatientSticker } from './utils/patientSticker';
+import { transcribeAudio } from './services/api';
 
 export const App = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -31,6 +33,15 @@ export const App = () => {
   const [newPatientReferringDoctor, setNewPatientReferringDoctor] = useState("");
   const [newPatientVisitType, setNewPatientVisitType] = useState<'new' | 'follow_up'>('new');
   const [newPatientVisitDate, setNewPatientVisitDate] = useState("");
+  const [stickerRaw, setStickerRaw] = useState('');
+  const [stickerError, setStickerError] = useState<string | null>(null);
+  const [stickerCameraOpen, setStickerCameraOpen] = useState(false);
+  const stickerVideoRef = React.useRef<HTMLVideoElement | null>(null);
+  const stickerStreamRef = React.useRef<MediaStream | null>(null);
+  const stickerScanTickRef = React.useRef<number | null>(null);
+  const [dictatingDetails, setDictatingDetails] = useState(false);
+  const detailsRecorderRef = React.useRef<MediaRecorder | null>(null);
+  const detailsChunksRef = React.useRef<Blob[]>([]);
 
   const localIsoDate = () => {
     const d = new Date();
@@ -162,8 +173,137 @@ export const App = () => {
   const openCreateModal = () => {
     setLoading(false);
     setNewPatientVisitDate(localIsoDate());
+    setStickerRaw('');
+    setStickerError(null);
+    setStickerCameraOpen(false);
     setShowCreateModal(true);
   };
+
+  const stopStickerCamera = useCallback(() => {
+    if (stickerScanTickRef.current) {
+      window.clearInterval(stickerScanTickRef.current);
+      stickerScanTickRef.current = null;
+    }
+    stickerStreamRef.current?.getTracks().forEach((t) => t.stop());
+    stickerStreamRef.current = null;
+    if (stickerVideoRef.current) stickerVideoRef.current.srcObject = null;
+    setStickerCameraOpen(false);
+  }, []);
+
+  const applyStickerParsed = useCallback((raw: string) => {
+    const parsed = parsePatientSticker(raw);
+    if (parsed.name) setNewPatientName(parsed.name);
+    if (parsed.dob) setNewPatientDob(parsed.dob);
+    if (parsed.sex) setNewPatientSex(parsed.sex);
+    if (parsed.folderNumber) setNewPatientFolderNumber(parsed.folderNumber);
+    if (parsed.contactNumber) setNewPatientContact(parsed.contactNumber);
+    if (parsed.referringDoctor) setNewPatientReferringDoctor(parsed.referringDoctor);
+  }, []);
+
+  const startStickerCamera = useCallback(async () => {
+    setStickerError(null);
+    setStickerCameraOpen(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+        audio: false,
+      });
+      stickerStreamRef.current = stream;
+      if (stickerVideoRef.current) {
+        stickerVideoRef.current.srcObject = stream;
+        await stickerVideoRef.current.play().catch(() => {});
+      }
+      const Detector = (window as any).BarcodeDetector as
+        | undefined
+        | (new (opts: { formats: string[] }) => { detect: (video: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>> });
+      if (!Detector) {
+        setStickerError('Camera scanning is not supported in this browser. Use a USB scanner or paste the sticker text.');
+        return;
+      }
+      const detector = new Detector({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'ean_8', 'pdf417', 'datamatrix'] });
+      if (stickerScanTickRef.current) window.clearInterval(stickerScanTickRef.current);
+      stickerScanTickRef.current = window.setInterval(async () => {
+        const video = stickerVideoRef.current;
+        if (!video) return;
+        try {
+          const codes = await detector.detect(video);
+          const v = codes?.[0]?.rawValue?.trim();
+          if (v) {
+            setStickerRaw(v);
+            applyStickerParsed(v);
+            stopStickerCamera();
+          }
+        } catch {
+          // ignore scan errors; keep polling
+        }
+      }, 400);
+    } catch (e) {
+      setStickerError(getErrorMessage(e));
+      stopStickerCamera();
+    }
+  }, [applyStickerParsed, getErrorMessage, stopStickerCamera]);
+
+  const startDictateDetails = useCallback(async () => {
+    setStickerError(null);
+    setDictatingDetails(true);
+    detailsChunksRef.current = [];
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType =
+        typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : 'audio/webm';
+      const mr = new MediaRecorder(stream, { mimeType });
+      detailsRecorderRef.current = mr;
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0) detailsChunksRef.current.push(e.data);
+      };
+      mr.onstop = async () => {
+        try {
+          const blob = new Blob(detailsChunksRef.current, { type: mimeType });
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const r = new FileReader();
+            r.onloadend = () => {
+              const result = r.result as string;
+              const i = result.indexOf(',');
+              resolve(i >= 0 ? result.slice(i + 1) : result);
+            };
+            r.onerror = () => reject(r.error ?? new Error('Read failed'));
+            r.readAsDataURL(blob);
+          });
+          const transcript = (await transcribeAudio(base64, mimeType)).trim();
+          if (!transcript) {
+            setStickerError('No speech detected for patient details.');
+            return;
+          }
+          // Fast path: treat dictated details like sticker text (many clinicians will say "Name..., DOB..., male/female...")
+          setStickerRaw(transcript);
+          applyStickerParsed(transcript);
+        } catch (err) {
+          setStickerError(getErrorMessage(err));
+        } finally {
+          stream.getTracks().forEach((t) => t.stop());
+          setDictatingDetails(false);
+          detailsRecorderRef.current = null;
+          detailsChunksRef.current = [];
+        }
+      };
+      mr.start(250);
+    } catch (err) {
+      setStickerError(getErrorMessage(err));
+      setDictatingDetails(false);
+    }
+  }, [applyStickerParsed, getErrorMessage]);
+
+  const stopDictateDetails = useCallback(() => {
+    const mr = detailsRecorderRef.current;
+    if (!mr) return;
+    try {
+      mr.stop();
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const submitCreatePatient = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -380,13 +520,86 @@ export const App = () => {
           <div className="bg-white rounded-t-[12px] sm:rounded-[12px] border border-[#E5E7EB] shadow-[0_1px_2px_rgba(0,0,0,0.05)] w-full max-w-lg max-h-[90dvh] overflow-y-auto p-6 sm:m-4">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-[#1F2937] flex items-center gap-2"><UserPlus className="text-[#4FB6B2]" size={24}/> New Patient Folder</h2>
-              <button onClick={() => setShowCreateModal(false)} className="text-[#9CA3AF] hover:text-[#1F2937] p-1 rounded-full hover:bg-[#F1F5F9] transition"><X size={20} /></button>
+              <button
+                onClick={() => {
+                  stopStickerCamera();
+                  setShowCreateModal(false);
+                }}
+                className="text-[#9CA3AF] hover:text-[#1F2937] p-1 rounded-full hover:bg-[#F1F5F9] transition"
+              >
+                <X size={20} />
+              </button>
             </div>
             <form onSubmit={submitCreatePatient}>
               <div className="space-y-4">
+                <div className="rounded-[12px] border border-[#E5E7EB] bg-[#F7F9FB] p-3">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[#6B7280] mb-2">
+                    Scan patient sticker
+                  </label>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <div className="flex-1">
+                      <input
+                        autoFocus
+                        type="text"
+                        placeholder="Scan barcode/QR (USB scanner) or paste sticker text…"
+                        value={stickerRaw}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setStickerRaw(v);
+                          setStickerError(null);
+                          if (v.trim().length >= 6) applyStickerParsed(v);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (!stickerRaw.trim()) return;
+                            applyStickerParsed(stickerRaw);
+                          }
+                        }}
+                        className="w-full min-h-[44px] px-4 py-3 rounded-[10px] border border-[#E5E7EB] bg-white text-sm text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
+                      />
+                      <p className="mt-1 text-[11px] text-[#9CA3AF]">
+                        Tip: most scanners “type” then press Enter automatically.
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => (stickerCameraOpen ? stopStickerCamera() : void startStickerCamera())}
+                        className="min-h-[44px] rounded-[10px] border border-[#E5E7EB] bg-white px-3 text-sm font-bold text-[#1F2937] hover:bg-[#F1F5F9]"
+                        title="Use camera to scan QR/barcode"
+                      >
+                        <ScanLine className="h-4 w-4 inline-block mr-2 text-[#4FB6B2]" />
+                        {stickerCameraOpen ? 'Stop' : 'Camera'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => (dictatingDetails ? stopDictateDetails() : void startDictateDetails())}
+                        className={`min-h-[44px] rounded-[10px] px-3 text-sm font-bold text-white ${
+                          dictatingDetails ? 'bg-rose-500 hover:bg-rose-600' : 'bg-[#4FB6B2] hover:bg-[#3FA6A2]'
+                        }`}
+                        title="Dictate patient details (name, DOB, sex, etc.)"
+                      >
+                        <Mic className="h-4 w-4 inline-block mr-2" />
+                        {dictatingDetails ? 'Stop' : 'Dictate'}
+                      </button>
+                    </div>
+                  </div>
+                  {stickerError ? (
+                    <p className="mt-2 rounded-[10px] border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-800">
+                      {stickerError}
+                    </p>
+                  ) : null}
+                  {stickerCameraOpen ? (
+                    <div className="mt-3 overflow-hidden rounded-[12px] border border-[#E5E7EB] bg-black">
+                      <video ref={stickerVideoRef} className="h-48 w-full object-cover" playsInline muted />
+                    </div>
+                  ) : null}
+                </div>
+
                 <div>
                   <label className="block text-sm font-semibold text-[#6B7280] mb-1.5">Full Name</label>
-                  <input autoFocus type="text" placeholder="e.g. Sarah Connor" value={newPatientName} onChange={(e) => setNewPatientName(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-[10px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition" />
+                  <input type="text" placeholder="e.g. Sarah Connor" value={newPatientName} onChange={(e) => setNewPatientName(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-[10px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition" />
                 </div>
                 <div className="flex gap-4">
                   <div className="flex-1 min-w-0">
@@ -446,7 +659,16 @@ export const App = () => {
                   <p className="text-xs text-[#9CA3AF] mt-1">Encounter or registration date (defaults to today).</p>
                 </div>
                 <div className="pt-2 flex gap-3">
-                  <button type="button" onClick={() => setShowCreateModal(false)} className="flex-1 px-4 py-3 rounded-[10px] font-medium text-[#1F2937] bg-white border border-[#E5E7EB] hover:bg-[#F1F5F9] transition">Cancel</button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      stopStickerCamera();
+                      setShowCreateModal(false);
+                    }}
+                    className="flex-1 px-4 py-3 rounded-[10px] font-medium text-[#1F2937] bg-white border border-[#E5E7EB] hover:bg-[#F1F5F9] transition"
+                  >
+                    Cancel
+                  </button>
                   <button type="submit" disabled={!newPatientName.trim() || !newPatientDob || !newPatientVisitDate || loading} className="flex-1 bg-[#4FB6B2] hover:bg-[#3FA6A2] text-white px-4 py-3 rounded-[10px] font-bold shadow-[0_1px_2px_rgba(0,0,0,0.05)] disabled:opacity-50 transition flex items-center justify-center gap-2">
                     {loading ? <Loader className="animate-spin" size={18}/> : 'Create Folder'}
                   </button>

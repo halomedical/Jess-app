@@ -19,6 +19,8 @@ interface FileBrowserProps {
   onDeleteFile: (file: DriveFile) => void;
   onViewFile: (file: DriveFile) => void;
   onCreateFolder: () => void;
+  /** Open file upload flow (destination picker handled by caller). */
+  onUploadFile?: () => void;
   /** Email this file (workspace); omitted = no button. */
   onEmailFile?: (file: DriveFile) => void;
   /** Folders matching this (e.g. system "Patient Notes") cannot be renamed or deleted. */
@@ -44,7 +46,7 @@ const FileSkeleton: React.FC = () => (
 export const FileBrowser: React.FC<FileBrowserProps> = ({
   files, status, breadcrumbs,
   onNavigateToFolder, onNavigateBack, onNavigateToBreadcrumb,
-  onStartEditFile, onDeleteFile, onViewFile, onCreateFolder, onEmailFile, isFolderProtected,
+  onStartEditFile, onDeleteFile, onViewFile, onCreateFolder, onUploadFile, onEmailFile, isFolderProtected,
 }) => {
   const isAtRoot = breadcrumbs.length <= 1;
   const folders = files.filter(isFolder);
@@ -81,12 +83,25 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
             </React.Fragment>
           ))}
         </div>
-        <button
-          onClick={onCreateFolder}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[#4FB6B2] bg-[#E6F4F3] hover:bg-[#E6F4F3]/80 border border-[#E5E7EB] rounded-[10px] transition-colors shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
-        >
-          <FolderPlus size={15} /> New Folder
-        </button>
+        <div className="flex items-center gap-2">
+          {onUploadFile ? (
+            <button
+              type="button"
+              onClick={onUploadFile}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-[#4FB6B2] hover:bg-[#3FA6A2] rounded-[10px] transition-colors shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
+              title="Upload file"
+            >
+              <CloudUpload size={15} /> Upload
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onCreateFolder}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[#4FB6B2] bg-[#E6F4F3] hover:bg-[#E6F4F3]/80 border border-[#E5E7EB] rounded-[10px] transition-colors shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
+          >
+            <FolderPlus size={15} /> New Folder
+          </button>
+        </div>
       </div>
 
       {/* File / folder listing */}

@@ -28,6 +28,8 @@ export interface DriveFile {
   url: string;
   thumbnail?: string;
   createdTime: string;
+  /** Optional Halo template association for uploaded documents (stored in Drive appProperties). */
+  haloTemplateId?: string;
 }
 
 export const FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';

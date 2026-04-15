@@ -6,6 +6,7 @@ import {
   summaryPrompt,
   labAlertsPrompt,
   imageAnalysisPrompt,
+  echoHandwritingExtractPrompt,
   searchPrompt,
   chatSystemPrompt,
 } from '../utils/prompts';
@@ -109,6 +110,24 @@ router.post('/analyze-image', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Image analysis error:', err);
     res.json({ filename: `image_${Date.now()}.jpg` });
+  }
+});
+
+// POST /echo-handwriting — extract handwritten text from Echo Report scans (image only)
+router.post('/echo-handwriting', async (req: Request, res: Response) => {
+  try {
+    const { base64Image, mimeType } = req.body as { base64Image?: string; mimeType?: string };
+    if (!base64Image || typeof base64Image !== 'string') {
+      res.status(400).json({ error: 'base64Image is required.' });
+      return;
+    }
+    const cleanBase64 = base64Image.split(',')[1] || base64Image;
+    const mt = (mimeType || 'image/jpeg').trim() || 'image/jpeg';
+    const text = await analyzeImage(echoHandwritingExtractPrompt(), cleanBase64, mt);
+    res.json({ text: (text || '').trim() });
+  } catch (err) {
+    console.error('Echo handwriting error:', err);
+    res.status(500).json({ error: 'Could not extract handwriting.' });
   }
 });
 

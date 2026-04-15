@@ -2,8 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Mic,
   Pause,
-  Play,
-  ParkingSquare,
   ListMusic,
   Upload,
   X,
@@ -44,13 +42,10 @@ export const PatientWorkspaceRecording: React.FC<Props> = ({
     openPanel,
     closePanel,
     startOrResume,
-    holdRecording,
-    resumeHeldRecording,
     parkRecording,
     finishAndTranscribe,
     discardSession,
     isLiveCapturing,
-    isMicHeldPaused,
     processingPatientIds,
   } = useRecordingSessions();
 
@@ -91,7 +86,7 @@ export const PatientWorkspaceRecording: React.FC<Props> = ({
     }
   };
 
-  const handlePark = async () => {
+  const handlePause = async () => {
     try {
       await parkRecording(patientId);
     } catch {
@@ -128,44 +123,20 @@ export const PatientWorkspaceRecording: React.FC<Props> = ({
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" />
         Live
       </span>
-    ) : isThisPatientRecording && isMicHeldPaused ? (
-      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[#E5E7EB] bg-[#F1F5F9] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#1F2937]">
-        <Pause className="h-3 w-3" />
-        Held
-      </span>
     ) : null;
 
-  const holdParkResumeFinish = (
+  const pauseFinish = (
     <>
-      {isThisPatientRecording && (isLiveCapturing || isMicHeldPaused) && (
+      {isThisPatientRecording && isLiveCapturing && (
         <>
-          {isLiveCapturing && (
-            <button
-              type="button"
-              onClick={holdRecording}
-              className="touch-manipulation inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1 rounded-[10px] border border-[#E5E7EB] bg-[#F1F5F9] px-2 text-[11px] font-bold uppercase tracking-wide text-[#1F2937] shadow-[0_1px_2px_rgba(0,0,0,0.05)] active:bg-[#E6F4F3]"
-              title="Pause microphone"
-            >
-              <Pause className="h-3.5 w-3.5 shrink-0" />
-            </button>
-          )}
-          {isMicHeldPaused && (
-            <button
-              type="button"
-              onClick={resumeHeldRecording}
-              className="touch-manipulation inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1 rounded-[10px] bg-[#4FB6B2] px-2 text-[11px] font-bold uppercase tracking-wide text-white shadow-[0_1px_2px_rgba(0,0,0,0.05)] active:bg-[#3FA6A2]"
-              title="Resume microphone"
-            >
-              <Play className="h-3.5 w-3.5 shrink-0" />
-            </button>
-          )}
           <button
             type="button"
-            onClick={handlePark}
+            onClick={handlePause}
             className="touch-manipulation inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1 rounded-[10px] border border-[#E5E7EB] bg-white px-2 text-[11px] font-bold uppercase tracking-wide text-[#1F2937] shadow-[0_1px_2px_rgba(0,0,0,0.05)] active:bg-[#F1F5F9]"
-            title="Park clip"
+            title="Pause dictation (keeps it with this patient)"
           >
-            <ParkingSquare className="h-3.5 w-3.5 shrink-0" />
+            <Pause className="h-3.5 w-3.5 shrink-0" />
+            <span className="hidden sm:inline">Pause</span>
           </button>
         </>
       )}
@@ -201,16 +172,16 @@ export const PatientWorkspaceRecording: React.FC<Props> = ({
     <button
       type="button"
       onClick={
-        isThisPatientRecording && (isLiveCapturing || isMicHeldPaused) ? handleFinishCurrent : handleMainFab
+        isThisPatientRecording && isLiveCapturing ? handleFinishCurrent : handleMainFab
       }
       disabled={fabDisabled}
       title={
-        isThisPatientRecording && (isLiveCapturing || isMicHeldPaused)
+        isThisPatientRecording && isLiveCapturing
           ? 'Finish and transcribe'
           : 'Start dictation'
       }
       className={`touch-manipulation flex h-12 w-12 shrink-0 items-center justify-center rounded-full shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition-transform active:scale-95 md:h-10 md:w-10 ${
-        isThisPatientRecording && (isLiveCapturing || isMicHeldPaused)
+        isThisPatientRecording && isLiveCapturing
           ? 'bg-[#3FA6A2] text-white active:bg-[#4FB6B2]'
             : fabDisabled
             ? 'cursor-not-allowed bg-[#F1F5F9] text-[#9CA3AF]'
@@ -219,7 +190,7 @@ export const PatientWorkspaceRecording: React.FC<Props> = ({
     >
       {currentPatientProcessing ? (
         <Wand2 className="h-5 w-5 animate-spin" />
-      ) : isThisPatientRecording && (isLiveCapturing || isMicHeldPaused) ? (
+      ) : isThisPatientRecording && isLiveCapturing ? (
         <Check className="h-5 w-5" />
       ) : (
         <Mic className="h-5 w-5" />
@@ -249,7 +220,7 @@ export const PatientWorkspaceRecording: React.FC<Props> = ({
       {transcribingBanner}
       <div className="flex flex-wrap items-center justify-end gap-2">
         {statusChip}
-        {holdParkResumeFinish}
+        {pauseFinish}
         {sessionsButton}
         {mainMicButton}
       </div>
@@ -277,7 +248,7 @@ export const PatientWorkspaceRecording: React.FC<Props> = ({
             </button>
             <div className="flex min-h-[52px] min-w-0 flex-1 items-center justify-center gap-1 overflow-x-auto [-webkit-overflow-scrolling:touch] px-1">
               {statusChip}
-              {holdParkResumeFinish}
+              {pauseFinish}
               {mainMicButton}
             </div>
             <div className="relative shrink-0">{sessionsButton}</div>
@@ -292,7 +263,7 @@ export const PatientWorkspaceRecording: React.FC<Props> = ({
             <div className="flex shrink-0 items-center justify-between border-b border-[#E5E7EB] bg-[#F7F9FB] px-4 py-3">
               <div>
                 <h3 className="text-sm font-bold text-[#1F2937]">Sessions</h3>
-                <p className="mt-0.5 text-[10px] text-[#6B7280]">Park to switch patient; Finish merges clips to transcribe.</p>
+                <p className="mt-0.5 text-[10px] text-[#6B7280]">Pause to switch patient; Finish merges clips to transcribe.</p>
               </div>
               <button
                 type="button"
@@ -363,32 +334,14 @@ export const PatientWorkspaceRecording: React.FC<Props> = ({
                         </button>
                       </div>
                     </div>
-                    {activeRecordingPatientId === s.patientId && (isLiveCapturing || isMicHeldPaused) && (
+                    {activeRecordingPatientId === s.patientId && isLiveCapturing && (
                       <div className="mt-2 flex flex-wrap gap-2 border-t border-[#E5E7EB] pt-2">
-                        {isLiveCapturing && (
-                          <button
-                            type="button"
-                            onClick={holdRecording}
-                            className="min-h-[40px] rounded-[10px] border border-[#E5E7EB] bg-[#F1F5F9] px-3 py-2 text-[10px] font-bold text-[#1F2937]"
-                          >
-                            Hold
-                          </button>
-                        )}
-                        {isMicHeldPaused && (
-                          <button
-                            type="button"
-                            onClick={resumeHeldRecording}
-                            className="min-h-[40px] rounded-[10px] bg-[#4FB6B2] px-3 py-2 text-[10px] font-bold text-white shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
-                          >
-                            Mic on
-                          </button>
-                        )}
                         <button
                           type="button"
                           onClick={() => parkRecording(s.patientId)}
                           className="min-h-[40px] rounded-[10px] border border-[#E5E7EB] bg-white px-3 py-2 text-[10px] font-bold text-[#1F2937] shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
                         >
-                          Park
+                          Pause
                         </button>
                       </div>
                     )}

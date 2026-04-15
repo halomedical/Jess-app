@@ -531,9 +531,11 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     fileInputRef.current?.click();
   };
 
-  const handleQuickAddNewNote = useCallback(
-    async (templateId: string) => {
-      setShowQuickAdd(false);
+  const [quickAddStep, setQuickAddStep] = useState<'choose_type' | 'choose_input'>('choose_type');
+  const [quickAddTemplate, setQuickAddTemplate] = useState<string | null>(null);
+
+  const createTargetNote = useCallback(
+    async (templateId: string): Promise<HaloNote> => {
       const createdAt = new Date().toISOString();
       const label = templateId === ECHO_TEMPLATE_ID ? 'Echo Report' : 'Rooms Consult';
       const note: HaloNote = {
@@ -565,10 +567,46 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       });
       generationTargetNoteIdRef.current = note.noteId;
       setWorkspaceTab('notes');
-      onToast(`${label} note created.`, 'success');
+      return note;
     },
-    [activeTab, currentFolderId, loadFolderContents, onToast, patient.id]
+    [activeTab, currentFolderId, loadFolderContents, patient.id]
   );
+
+  const handleQuickAddChooseTemplate = useCallback((templateId: string) => {
+    setQuickAddTemplate(templateId);
+    setQuickAddStep('choose_input');
+  }, []);
+
+  const handleQuickAddBack = useCallback(() => {
+    setQuickAddStep('choose_type');
+    setQuickAddTemplate(null);
+  }, []);
+
+  const handleQuickAddDictate = useCallback(async () => {
+    if (!quickAddTemplate) return;
+    const label = quickAddTemplate === ECHO_TEMPLATE_ID ? 'Echo Report' : 'Rooms Consult';
+    await createTargetNote(quickAddTemplate);
+    setShowQuickAdd(false);
+    setQuickAddStep('choose_type');
+    setQuickAddTemplate(null);
+    onToast(`${label} note ready. Start dictation, then press Finish to fill it.`, 'success');
+  }, [createTargetNote, onToast, quickAddTemplate]);
+
+  const handleQuickAddUploadEcho = useCallback(async () => {
+    if (!quickAddTemplate) return;
+    const label = quickAddTemplate === ECHO_TEMPLATE_ID ? 'Echo Report' : 'Rooms Consult';
+    const note = await createTargetNote(quickAddTemplate);
+    setShowQuickAdd(false);
+    setQuickAddStep('choose_type');
+    setQuickAddTemplate(null);
+    onToast(`${label} note ready. Choose the echo report to fill it.`, 'success');
+    if (note.template_id === ECHO_TEMPLATE_ID) {
+      // Ensure the note exists before opening the picker.
+      queueMicrotask(() => noteSourceFileInputRef.current?.click());
+    } else {
+      queueMicrotask(() => openUploadPicker());
+    }
+  }, [createTargetNote, onToast, openUploadPicker, quickAddTemplate]);
 
   const handleFillActiveNoteFromDictation = useCallback(() => {
     const n = notes[activeNoteIndex];
@@ -2293,33 +2331,66 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                 <X size={20} />
               </button>
             </div>
-            <p className="text-xs text-[#6B7280] mb-4">Create a new note or upload a file.</p>
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => void handleQuickAddNewNote(ROOMS_CONSULT_TEMPLATE_ID)}
-                className="w-full min-h-[44px] rounded-xl border border-[#E5E7EB] bg-white px-4 py-3 text-left font-semibold text-[#1F2937] hover:bg-[#F1F5F9] transition"
-              >
-                New Rooms Consult note
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleQuickAddNewNote(ECHO_TEMPLATE_ID)}
-                className="w-full min-h-[44px] rounded-xl border border-[#E5E7EB] bg-white px-4 py-3 text-left font-semibold text-[#1F2937] hover:bg-[#F1F5F9] transition"
-              >
-                New Echo Report note
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowQuickAdd(false);
-                  void openUploadPicker();
-                }}
-                className="w-full min-h-[44px] rounded-xl bg-[#4FB6B2] px-4 py-3 text-left font-semibold text-white hover:bg-[#3FA6A2] transition"
-              >
-                Upload file…
-              </button>
-            </div>
+            {quickAddStep === 'choose_type' ? (
+              <>
+                <p className="text-xs text-[#6B7280] mb-4">What do you want to create?</p>
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => handleQuickAddChooseTemplate(ROOMS_CONSULT_TEMPLATE_ID)}
+                    className="w-full min-h-[44px] rounded-xl border border-[#E5E7EB] bg-white px-4 py-3 text-left font-semibold text-[#1F2937] hover:bg-[#F1F5F9] transition"
+                  >
+                    Rooms Consult note
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickAddChooseTemplate(ECHO_TEMPLATE_ID)}
+                    className="w-full min-h-[44px] rounded-xl border border-[#E5E7EB] bg-white px-4 py-3 text-left font-semibold text-[#1F2937] hover:bg-[#F1F5F9] transition"
+                  >
+                    Echo Report note
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowQuickAdd(false);
+                      setQuickAddStep('choose_type');
+                      setQuickAddTemplate(null);
+                      void openUploadPicker();
+                    }}
+                    className="w-full min-h-[44px] rounded-xl bg-[#4FB6B2] px-4 py-3 text-left font-semibold text-white hover:bg-[#3FA6A2] transition"
+                  >
+                    Upload file…
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-xs text-[#6B7280] mb-4">How do you want to fill it?</p>
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleQuickAddDictate()}
+                    className="w-full min-h-[44px] rounded-xl bg-[#4FB6B2] px-4 py-3 text-left font-semibold text-white hover:bg-[#3FA6A2] transition"
+                  >
+                    Dictate
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleQuickAddUploadEcho()}
+                    className="w-full min-h-[44px] rounded-xl border border-[#E5E7EB] bg-white px-4 py-3 text-left font-semibold text-[#1F2937] hover:bg-[#F1F5F9] transition"
+                  >
+                    {quickAddTemplate === ECHO_TEMPLATE_ID ? 'Upload echo report…' : 'Upload file…'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleQuickAddBack}
+                    className="w-full min-h-[44px] rounded-xl border border-[#E5E7EB] bg-white px-4 py-3 text-left font-semibold text-[#6B7280] hover:bg-[#F1F5F9] transition"
+                  >
+                    Back
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

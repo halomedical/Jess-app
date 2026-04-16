@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { Patient, DriveFile, LabAlert, BreadcrumbItem, ChatMessage, HaloNote } from '../../../shared/types';
-import { DEFAULT_HALO_TEMPLATE_ID, ECHO_TEMPLATE_ID, ROOMS_CONSULT_TEMPLATE_ID } from '../../../shared/haloTemplates';
+import { DEFAULT_HALO_TEMPLATE_ID, ECHO_TEMPLATE_ID, ROOMS_CONSULT_TEMPLATE_ID, ANGIOGRAM_TEMPLATE_ID } from '../../../shared/haloTemplates';
 import { stripLeadingDictationTemplateCue } from '../../../shared/dictationTemplateIntent';
 
 /** Workspace note generation is fixed to Rooms Consult only. */
@@ -18,6 +18,7 @@ import {
   fetchFiles, fetchFilesFirstPage, fetchFilesPage, fetchFolderContents, uploadFile, updatePatient,
   updateFileMetadata, generatePatientSummary, analyzeAndRenameImage,
   extractEchoReportText,
+  extractDocumentText,
   extractLabAlerts, deleteFile, createFolder, askHaloStream,
   generateNotePreview, saveNoteAsDocx, sendClinicalNoteEmail, sendWorkspaceFileEmail,
   fetchWorkspaceDraft, saveWorkspaceDraft, fetchNotePreviewPdf,
@@ -584,29 +585,40 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
 
   const handleQuickAddDictate = useCallback(async () => {
     if (!quickAddTemplate) return;
-    const label = quickAddTemplate === ECHO_TEMPLATE_ID ? 'Echo Report' : 'Rooms Consult';
+    const label =
+      quickAddTemplate === ECHO_TEMPLATE_ID
+        ? 'Echo Report'
+        : quickAddTemplate === ANGIOGRAM_TEMPLATE_ID
+          ? 'Angiogram Report'
+          : 'Rooms Consult';
     await createTargetNote(quickAddTemplate);
+    try {
+      await scribeSessions.startOrResume(patient.id, patient.name);
+    } catch {
+      onToast('Could not start recording. Check microphone permission.', 'error');
+    }
     setShowQuickAdd(false);
     setQuickAddStep('choose_type');
     setQuickAddTemplate(null);
-    onToast(`${label} note ready. Start dictation, then press Finish to fill it.`, 'success');
-  }, [createTargetNote, onToast, quickAddTemplate]);
+    onToast(`${label}: recording started. Press Finish to transcribe and generate automatically.`, 'success');
+  }, [createTargetNote, onToast, quickAddTemplate, patient.id, patient.name, scribeSessions]);
 
   const handleQuickAddUploadEcho = useCallback(async () => {
     if (!quickAddTemplate) return;
-    const label = quickAddTemplate === ECHO_TEMPLATE_ID ? 'Echo Report' : 'Rooms Consult';
+    const label =
+      quickAddTemplate === ECHO_TEMPLATE_ID
+        ? 'Echo Report'
+        : quickAddTemplate === ANGIOGRAM_TEMPLATE_ID
+          ? 'Angiogram Report'
+          : 'Rooms Consult';
     const note = await createTargetNote(quickAddTemplate);
     setShowQuickAdd(false);
     setQuickAddStep('choose_type');
     setQuickAddTemplate(null);
-    onToast(`${label} note ready. Choose the echo report to fill it.`, 'success');
-    if (note.template_id === ECHO_TEMPLATE_ID) {
-      // Ensure the note exists before opening the picker.
-      queueMicrotask(() => noteSourceFileInputRef.current?.click());
-    } else {
-      queueMicrotask(() => openUploadPicker());
-    }
-  }, [createTargetNote, onToast, openUploadPicker, quickAddTemplate]);
+    onToast(`${label} note ready. Choose a file to extract and fill the template.`, 'success');
+    // Ensure the note exists before opening the picker.
+    queueMicrotask(() => noteSourceFileInputRef.current?.click());
+  }, [createTargetNote, onToast, quickAddTemplate]);
 
   const handleFillActiveNoteFromDictation = useCallback(() => {
     const n = notes[activeNoteIndex];
@@ -629,14 +641,10 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       const file = input.files[0];
       const active = notes[activeNoteIndex];
       if (!active) return;
-      if (active.template_id !== ECHO_TEMPLATE_ID) {
-        onToast('Upload-to-fill is currently supported for Echo Report notes.', 'info');
-        input.value = '';
-        return;
-      }
+      const templateId = active.template_id || WORKSPACE_TEMPLATE_ID;
       try {
         // Upload file to Drive for recordkeeping (do not block extraction if upload fails)
-        uploadFile(patient.id, file, file.name, { haloTemplateId: ECHO_TEMPLATE_ID }).catch(() => {});
+        uploadFile(patient.id, file, file.name, { haloTemplateId: templateId }).catch(() => {});
 
         const base64Data = await new Promise<string>((resolve, reject) => {
           const r = new FileReader();
@@ -649,31 +657,33 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           r.readAsDataURL(file);
         });
 
-        onToast('Extracting text from echo report…', 'info');
-        const extracted = (await extractEchoReportText({
-          base64Data,
-          mimeType: file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
-        })).trim();
+        const mime = file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+        onToast('Extracting text from document…', 'info');
+        const extracted = (
+          templateId === ECHO_TEMPLATE_ID
+            ? await extractEchoReportText({ base64Data, mimeType: mime })
+            : await extractDocumentText({ base64Data, mimeType: mime })
+        ).trim();
         if (!extracted) {
-          onToast('No text detected in echo report.', 'info');
+          onToast('No text detected in file.', 'info');
           input.value = '';
           return;
         }
 
-        const res = await generateNotePreview({ template_id: ECHO_TEMPLATE_ID, text: extracted });
+        const res = await generateNotePreview({ template_id: templateId, text: extracted });
         const first = res.notes?.[0];
         const content = first?.content?.trim() ? first.content : extracted;
         const now = new Date().toISOString();
         const updated: HaloNote = {
           ...active,
           content,
-          template_id: ECHO_TEMPLATE_ID,
+          template_id: templateId,
           dirty: false,
           lastSavedAt: now,
           ...(first?.fields && first.fields.length > 0 ? { fields: first.fields } : {}),
         };
         setNotes((prev) => prev.map((n) => (n.noteId === active.noteId ? updated : n)));
-        onToast('Echo Report note filled from uploaded report.', 'success');
+        onToast('Note filled from uploaded file.', 'success');
       } catch (err) {
         onToast(getErrorMessage(err), 'error');
       } finally {
@@ -1679,7 +1689,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           patientName={patient.name}
           onError={(msg) => onToast(msg, 'error')}
           onTranscriptionQueued={() => onToast('Transcription ready in Editor & Scribe.', 'success')}
-          onUploadClick={openUploadPicker}
+          onUploadClick={() => {}}
           uploadDisabled={status === AppStatus.UPLOADING}
         >
           {(recordingToolbar) => (
@@ -1705,22 +1715,6 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                 <div className="hidden w-full flex-col gap-2 md:flex md:w-auto md:items-end">
                   <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
                     {recordingToolbar}
-                    <button
-                      type="button"
-                      onClick={() => setShowQuickAdd(true)}
-                      className="flex min-h-[44px] w-full shrink-0 items-center justify-center gap-2 rounded-lg border border-[#E5E7EB] bg-white px-4 py-2.5 text-sm font-bold text-[#1F2937] shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition-all hover:bg-[#F1F5F9] sm:w-auto"
-                      title="Create a new note or upload a file"
-                      aria-label="New note or upload"
-                    >
-                      <Plus className="h-4 w-4 text-[#4FB6B2]" /> New
-                    </button>
-                    <button
-                      type="button"
-                      onClick={openUploadPicker}
-                      className="flex min-h-[44px] w-full shrink-0 items-center justify-center gap-2 rounded-lg bg-[#4FB6B2] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition-all hover:bg-[#3FA6A2] sm:w-auto"
-                    >
-                      <Upload className="h-4 w-4" /> Upload file
-                    </button>
                   </div>
                 </div>
               )}
@@ -1877,6 +1871,11 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
               onDeleteFile={setFileToDelete}
               onViewFile={setViewingFile}
               onUploadFile={openUploadPicker}
+              onCreateNew={() => {
+                setQuickAddStep('choose_type');
+                setQuickAddTemplate(null);
+                setShowQuickAdd(true);
+              }}
               onCreateFolder={() => setShowCreateFolderModal(true)}
               onEmailFile={(file) => {
                 if (!userEmail?.trim()) {
@@ -2320,11 +2319,24 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       {showQuickAdd && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-[#1F2937]/25 backdrop-blur-[2px] p-0 sm:p-4 safe-pad-b">
           <div className="bg-white rounded-t-[12px] sm:rounded-[12px] border border-[#E5E7EB] shadow-[0_1px_2px_rgba(0,0,0,0.05)] p-6 w-full max-w-sm max-h-[90dvh] overflow-y-auto sm:m-4">
-            <div className="flex justify-between items-center mb-3">
-              <h3 className="text-lg font-bold text-[#1F2937]">Add</h3>
+            <div className="flex justify-between items-start mb-4">
+              <div className="min-w-0">
+                <h3 className="text-lg font-bold text-[#1F2937] leading-tight">
+                  {quickAddStep === 'choose_type' ? 'Create new' : 'Fill from'}
+                </h3>
+                <p className="mt-0.5 text-xs text-[#6B7280]">
+                  {quickAddStep === 'choose_type'
+                    ? 'Choose the note/report type.'
+                    : 'Choose dictation or upload a file to populate the template.'}
+                </p>
+              </div>
               <button
                 type="button"
-                onClick={() => setShowQuickAdd(false)}
+                onClick={() => {
+                  setShowQuickAdd(false);
+                  setQuickAddStep('choose_type');
+                  setQuickAddTemplate(null);
+                }}
                 className="text-[#9CA3AF] hover:text-[#1F2937] p-1 rounded-full hover:bg-[#F1F5F9] transition"
                 aria-label="Close"
               >
@@ -2333,58 +2345,56 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             </div>
             {quickAddStep === 'choose_type' ? (
               <>
-                <p className="text-xs text-[#6B7280] mb-4">What do you want to create?</p>
                 <div className="space-y-2">
                   <button
                     type="button"
                     onClick={() => handleQuickAddChooseTemplate(ROOMS_CONSULT_TEMPLATE_ID)}
-                    className="w-full min-h-[44px] rounded-xl border border-[#E5E7EB] bg-white px-4 py-3 text-left font-semibold text-[#1F2937] hover:bg-[#F1F5F9] transition"
+                    className="w-full min-h-[48px] rounded-[12px] border border-[#E5E7EB] bg-white px-4 py-3 text-left font-semibold text-[#1F2937] shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:bg-[#F1F5F9] transition"
                   >
-                    Rooms Consult note
+                    Rooms Consult
+                    <span className="block text-[11px] font-medium text-[#6B7280]">Consult note template.</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => handleQuickAddChooseTemplate(ECHO_TEMPLATE_ID)}
-                    className="w-full min-h-[44px] rounded-xl border border-[#E5E7EB] bg-white px-4 py-3 text-left font-semibold text-[#1F2937] hover:bg-[#F1F5F9] transition"
+                    className="w-full min-h-[48px] rounded-[12px] border border-[#E5E7EB] bg-white px-4 py-3 text-left font-semibold text-[#1F2937] shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:bg-[#F1F5F9] transition"
                   >
-                    Echo Report note
+                    Echo Report
+                    <span className="block text-[11px] font-medium text-[#6B7280]">Extract and format an echo report.</span>
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      setShowQuickAdd(false);
-                      setQuickAddStep('choose_type');
-                      setQuickAddTemplate(null);
-                      void openUploadPicker();
-                    }}
-                    className="w-full min-h-[44px] rounded-xl bg-[#4FB6B2] px-4 py-3 text-left font-semibold text-white hover:bg-[#3FA6A2] transition"
+                    onClick={() => handleQuickAddChooseTemplate(ANGIOGRAM_TEMPLATE_ID)}
+                    className="w-full min-h-[48px] rounded-[12px] border border-[#E5E7EB] bg-white px-4 py-3 text-left font-semibold text-[#1F2937] shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:bg-[#F1F5F9] transition"
                   >
-                    Upload file…
+                    Angiogram Report
+                    <span className="block text-[11px] font-medium text-[#6B7280]">Structured cath/angiogram report.</span>
                   </button>
                 </div>
               </>
             ) : (
               <>
-                <p className="text-xs text-[#6B7280] mb-4">How do you want to fill it?</p>
                 <div className="space-y-2">
                   <button
                     type="button"
                     onClick={() => void handleQuickAddDictate()}
-                    className="w-full min-h-[44px] rounded-xl bg-[#4FB6B2] px-4 py-3 text-left font-semibold text-white hover:bg-[#3FA6A2] transition"
+                    className="w-full min-h-[48px] rounded-[12px] bg-[#4FB6B2] px-4 py-3 text-left font-semibold text-white shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:bg-[#3FA6A2] transition"
                   >
                     Dictate
+                    <span className="block text-[11px] font-medium text-white/90">Starts recording immediately.</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => void handleQuickAddUploadEcho()}
-                    className="w-full min-h-[44px] rounded-xl border border-[#E5E7EB] bg-white px-4 py-3 text-left font-semibold text-[#1F2937] hover:bg-[#F1F5F9] transition"
+                    className="w-full min-h-[48px] rounded-[12px] border border-[#E5E7EB] bg-white px-4 py-3 text-left font-semibold text-[#1F2937] shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:bg-[#F1F5F9] transition"
                   >
                     {quickAddTemplate === ECHO_TEMPLATE_ID ? 'Upload echo report…' : 'Upload file…'}
+                    <span className="block text-[11px] font-medium text-[#6B7280]">PDF or photo — extract text and format.</span>
                   </button>
                   <button
                     type="button"
                     onClick={handleQuickAddBack}
-                    className="w-full min-h-[44px] rounded-xl border border-[#E5E7EB] bg-white px-4 py-3 text-left font-semibold text-[#6B7280] hover:bg-[#F1F5F9] transition"
+                    className="w-full min-h-[44px] rounded-[12px] border border-[#E5E7EB] bg-white px-4 py-3 text-left font-semibold text-[#6B7280] hover:bg-[#F1F5F9] transition"
                   >
                     Back
                   </button>

@@ -16,7 +16,7 @@ interface Props {
   patientName: string;
   onError: (message: string) => void;
   onTranscriptionQueued: () => void;
-  onUploadClick: () => void;
+  onUploadClick?: () => void;
   uploadDisabled?: boolean;
   /** Desktop header slot: toolbar + caller adds Upload next to it */
   children: (toolbar: React.ReactNode) => React.ReactNode;
@@ -236,16 +236,18 @@ export const PatientWorkspaceRecording: React.FC<Props> = ({
         <div className="pointer-events-auto border-t border-[#E5E7EB] bg-white px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-1px_2px_rgba(0,0,0,0.05)]">
           {transcribingBanner ? <div className="mb-2">{transcribingBanner}</div> : null}
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onUploadClick}
-              disabled={uploadDisabled}
-              className="touch-manipulation flex min-h-[48px] min-w-[48px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-[10px] bg-[#4FB6B2] text-[10px] font-bold text-white shadow-[0_1px_2px_rgba(15,23,42,0.08)] active:bg-[#3FA6A2] disabled:opacity-45"
-              title="Upload file"
-            >
-              <Upload className="h-5 w-5" strokeWidth={2.25} />
-              <span className="leading-none">Upload</span>
-            </button>
+            {onUploadClick ? (
+              <button
+                type="button"
+                onClick={onUploadClick}
+                disabled={uploadDisabled}
+                className="touch-manipulation flex min-h-[48px] min-w-[48px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-[10px] bg-[#4FB6B2] text-[10px] font-bold text-white shadow-[0_1px_2px_rgba(15,23,42,0.08)] active:bg-[#3FA6A2] disabled:opacity-45"
+                title="Upload file"
+              >
+                <Upload className="h-5 w-5" strokeWidth={2.25} />
+                <span className="leading-none">Upload</span>
+              </button>
+            ) : null}
             <div className="flex min-h-[52px] min-w-0 flex-1 items-center justify-center gap-1 overflow-x-auto [-webkit-overflow-scrolling:touch] px-1">
               {statusChip}
               {pauseFinish}

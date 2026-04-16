@@ -9,6 +9,7 @@ export const DEFAULT_HALO_API_USER_ID = 'fcb5cfec-e10e-4c3a-bd44-064a788a6243';
 export const ROOMS_CONSULT_TEMPLATE_ID = 'rooms_consult';
 export const REPORT_TEMPLATE_ID = 'report';
 export const ECHO_TEMPLATE_ID = 'echo';
+export const ANGIOGRAM_TEMPLATE_ID = 'angiogram';
 
 export const DEFAULT_HALO_TEMPLATE_ID = ROOMS_CONSULT_TEMPLATE_ID;
 
@@ -17,6 +18,7 @@ export const HALO_TEMPLATE_OPTIONS: { id: string; name: string }[] = [
   { id: ROOMS_CONSULT_TEMPLATE_ID, name: 'Rooms Consult' },
   { id: REPORT_TEMPLATE_ID, name: 'Report' },
   { id: ECHO_TEMPLATE_ID, name: 'Echo Report' },
+  { id: ANGIOGRAM_TEMPLATE_ID, name: 'Angiogram Report' },
 ];
 
 /**
@@ -59,6 +61,20 @@ Use exactly these ## sections in order (echo / cardiac ultrasound style):
 ## Recommendations / follow-up
 
 Use standard echo terminology; do not fabricate measurements.`,
+
+  [ANGIOGRAM_TEMPLATE_ID]: `
+Use exactly these ## sections in order (coronary angiogram / cath report style):
+## Procedure / study
+## Indication / clinical context
+## Access and technique (if dictated)
+## Coronary anatomy and findings (LMS, LAD, LCx, RCA; include lesions and % stenosis as dictated)
+## Hemodynamics / pressures (if dictated)
+## Interventions (PCI/stents/balloons) (if dictated)
+## Complications
+## Impression / conclusion
+## Recommendations / plan
+
+Use formal report tone. Do not fabricate vessels or stenosis percentages.`,
 };
 
 /**

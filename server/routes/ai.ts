@@ -7,6 +7,7 @@ import {
   labAlertsPrompt,
   imageAnalysisPrompt,
   echoHandwritingExtractPrompt,
+  documentExtractPrompt,
   searchPrompt,
   chatSystemPrompt,
 } from '../utils/prompts';
@@ -130,6 +131,22 @@ async function extractEchoReportTextFromBase64(input: {
   return (await analyzeImage(echoHandwritingExtractPrompt(), input.base64, input.mimeType)).trim();
 }
 
+async function extractDocumentTextFromBase64(input: {
+  base64: string;
+  mimeType: string;
+}): Promise<string> {
+  const mt = (input.mimeType || '').trim().toLowerCase();
+  if (mt === 'application/pdf') {
+    const { PDFParse } = await import('pdf-parse');
+    const buf = Buffer.from(input.base64, 'base64');
+    const parser = new PDFParse({ data: new Uint8Array(buf) });
+    const result = await parser.getText();
+    await parser.destroy();
+    return (result.text || '').trim();
+  }
+  return (await analyzeImage(documentExtractPrompt(), input.base64, input.mimeType)).trim();
+}
+
 // POST /echo-report-extract — extract text from an Echo report upload (PDF or image)
 router.post('/echo-report-extract', async (req: Request, res: Response) => {
   try {
@@ -145,6 +162,24 @@ router.post('/echo-report-extract', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Echo report extract error:', err);
     res.status(500).json({ error: 'Could not extract text from echo report.' });
+  }
+});
+
+// POST /document-extract — generic text extraction from uploaded PDF/image (for filling templates)
+router.post('/document-extract', async (req: Request, res: Response) => {
+  try {
+    const { base64Data, mimeType } = req.body as { base64Data?: string; mimeType?: string };
+    if (!base64Data || typeof base64Data !== 'string') {
+      res.status(400).json({ error: 'base64Data is required.' });
+      return;
+    }
+    const cleanBase64 = base64Data.split(',')[1] || base64Data;
+    const mt = (mimeType || 'application/pdf').trim() || 'application/pdf';
+    const text = await extractDocumentTextFromBase64({ base64: cleanBase64, mimeType: mt });
+    res.json({ text: (text || '').trim() });
+  } catch (err) {
+    console.error('Document extract error:', err);
+    res.status(500).json({ error: 'Could not extract text from document.' });
   }
 });
 

@@ -74,8 +74,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[10px] border border-[#E5E7EB] bg-white md:rounded-lg md:border-[#E5E7EB]/90">
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-1 border-b border-[#E5E7EB] px-1.5 py-1 md:gap-2 md:border-[#F1F5F9] md:px-2 md:py-1.5 sm:px-3">
+    <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-[10px] border border-[#E5E7EB] bg-white md:rounded-lg md:border-[#E5E7EB]/90">
+      <div className="flex min-w-0 shrink-0 flex-col gap-1 border-b border-[#E5E7EB] px-1.5 py-1 md:border-[#F1F5F9] md:px-2 md:py-1.5 sm:px-3 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 md:gap-2">
           <span className="hidden text-[10px] font-bold uppercase tracking-wide text-[#9CA3AF] sm:inline">Note</span>
           <div className="inline-flex rounded-[10px] border border-[#E5E7EB] bg-[#F1F5F9] p-0.5 md:rounded-md md:border-[#E5E7EB] md:bg-[#F1F5F9]">
@@ -105,7 +105,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             </button>
           </div>
         </div>
-        <div className="flex max-w-full gap-0.5 overflow-x-auto [-webkit-overflow-scrolling:touch] pb-0.5 md:gap-1">
+        <div className="flex min-w-0 max-w-full gap-0.5 overflow-x-auto [-webkit-overflow-scrolling:touch] pb-0.5 md:gap-1">
           {notes.map((note, i) => {
             const dateLabel = tabDateLabelForNote(note);
             return (

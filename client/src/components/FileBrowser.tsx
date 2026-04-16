@@ -3,7 +3,7 @@ import type { DriveFile, BreadcrumbItem } from '../../../shared/types';
 import { AppStatus, FOLDER_MIME_TYPE } from '../../../shared/types';
 import {
   FileText, ChevronLeft, ChevronRight, Home, FolderOpen, FolderPlus,
-  Pencil, Trash2, Eye, ExternalLink, CloudUpload, Mail,
+  Pencil, Trash2, Eye, ExternalLink, CloudUpload, Mail, Plus,
   FileSpreadsheet, FileImage, File,
 } from 'lucide-react';
 import { getFriendlyFileType } from '../utils/formatting';
@@ -21,6 +21,8 @@ interface FileBrowserProps {
   onCreateFolder: () => void;
   /** Open file upload flow (destination picker handled by caller). */
   onUploadFile?: () => void;
+  /** Open Create New workflow (note/report). */
+  onCreateNew?: () => void;
   /** Email this file (workspace); omitted = no button. */
   onEmailFile?: (file: DriveFile) => void;
   /** Folders matching this (e.g. system "Patient Notes") cannot be renamed or deleted. */
@@ -46,7 +48,7 @@ const FileSkeleton: React.FC = () => (
 export const FileBrowser: React.FC<FileBrowserProps> = ({
   files, status, breadcrumbs,
   onNavigateToFolder, onNavigateBack, onNavigateToBreadcrumb,
-  onStartEditFile, onDeleteFile, onViewFile, onCreateFolder, onUploadFile, onEmailFile, isFolderProtected,
+  onStartEditFile, onDeleteFile, onViewFile, onCreateFolder, onUploadFile, onCreateNew, onEmailFile, isFolderProtected,
 }) => {
   const isAtRoot = breadcrumbs.length <= 1;
   const folders = files.filter(isFolder);
@@ -84,6 +86,16 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
           ))}
         </div>
         <div className="flex items-center gap-2">
+          {onCreateNew ? (
+            <button
+              type="button"
+              onClick={onCreateNew}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold text-[#1F2937] bg-white hover:bg-[#F1F5F9] border border-[#E5E7EB] rounded-[10px] transition-colors shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
+              title="Create new note or report"
+            >
+              <Plus size={16} className="text-[#4FB6B2]" /> Create New
+            </button>
+          ) : null}
           {onUploadFile ? (
             <button
               type="button"

@@ -39,6 +39,18 @@ Task:
 Return ONLY the extracted plain text (no JSON, no markdown).`;
 }
 
+export function documentExtractPrompt(): string {
+  return `You are a clinical document extraction assistant.
+
+Task:
+- Extract ALL readable text from this document image as plain text.
+- Preserve order as much as possible.
+- Include handwritten content too (use "[illegible]" when you cannot read something).
+- Do NOT summarize, interpret, or invent values.
+
+Return ONLY the extracted plain text (no JSON, no markdown).`;
+}
+
 export function searchPrompt(query: string, context: string): string {
   return `
     You are a medical assistant search engine. Search by patient name, date of birth, file names, AND file contents.

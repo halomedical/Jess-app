@@ -14,6 +14,47 @@ export class ApiError extends Error {
   }
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Cold hosts (e.g. Heroku free) often return 502/503 on first touch; a short backoff usually succeeds. */
+function isTransientApiFailure(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return false;
+  return (
+    err.status === 0 ||
+    err.status === 429 ||
+    err.status === 502 ||
+    err.status === 503 ||
+    err.status === 504
+  );
+}
+
+/**
+ * Same as `request`, but retries a few times on transient gateway / overload / cold-start failures
+ * so users are not forced to tap Retry after dictation.
+ */
+async function requestWithTransientRetry<T = unknown>(
+  path: string,
+  options: RequestInit = {},
+  retryOpts?: { maxAttempts?: number; baseDelayMs?: number }
+): Promise<T> {
+  const maxAttempts = retryOpts?.maxAttempts ?? 5;
+  const baseDelayMs = retryOpts?.baseDelayMs ?? 900;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await request<T>(path, options);
+    } catch (e) {
+      lastError = e;
+      if (attempt >= maxAttempts || !isTransientApiFailure(e)) throw e;
+      const jitter = Math.floor(Math.random() * 250);
+      await delay(baseDelayMs * attempt + jitter);
+    }
+  }
+  throw lastError;
+}
+
 async function request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE}${path}`;
   console.log(`[API] Making request to: ${url}`);
@@ -347,36 +388,51 @@ export const getHaloTemplates = (userId?: string) =>
 
 /** Generate note preview (return_type=note). Returns normalized notes array. */
 export const generateNotePreview = (params: { template_id: string; text: string; user_id?: string }) =>
-  request<{ notes: HaloNote[] }>('/api/halo/generate-note', {
+  requestWithTransientRetry<{ notes: HaloNote[] }>('/api/halo/generate-note', {
     method: 'POST',
     body: JSON.stringify({ ...params, return_type: 'note' }),
   });
 
 /** Build inline PDF preview from the same full text used for DOCX (chart + note). */
 export async function fetchNotePreviewPdf(text: string, signal?: AbortSignal): Promise<Blob> {
-  const url = `${API_BASE}/api/halo/note-preview-pdf`;
-  const res = await fetch(url, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
-    signal,
-  });
-  if (res.status === 401) {
-    window.location.href = '/';
-    throw new ApiError('Not authenticated', 401);
-  }
-  if (!res.ok) {
-    let msg = `PDF preview failed (${res.status})`;
+  const maxAttempts = 5;
+  const baseDelayMs = 900;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const j = (await res.json()) as { error?: string };
-      if (typeof j.error === 'string') msg = j.error;
-    } catch {
-      /* ignore */
+      const url = `${API_BASE}/api/halo/note-preview-pdf`;
+      const res = await fetch(url, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+        signal,
+      });
+      if (res.status === 401) {
+        window.location.href = '/';
+        throw new ApiError('Not authenticated', 401);
+      }
+      if (!res.ok) {
+        let msg = `PDF preview failed (${res.status})`;
+        try {
+          const j = (await res.json()) as { error?: string };
+          if (typeof j.error === 'string') msg = j.error;
+        } catch {
+          /* ignore */
+        }
+        throw new ApiError(msg, res.status);
+      }
+      return res.blob();
+    } catch (e) {
+      lastError = e;
+      if (signal?.aborted) throw e;
+      if (attempt >= maxAttempts || !isTransientApiFailure(e)) throw e;
+      const jitter = Math.floor(Math.random() * 250);
+      await delay(baseDelayMs * attempt + jitter);
     }
-    throw new ApiError(msg, res.status);
   }
-  return res.blob();
+  throw lastError;
 }
 
 /** Generate DOCX and save to patient folder on Drive. Returns { success, fileId, name }. */

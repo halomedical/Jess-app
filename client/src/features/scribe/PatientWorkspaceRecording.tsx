@@ -98,8 +98,8 @@ export const PatientWorkspaceRecording: React.FC<Props> = ({
     try {
       await finishAndTranscribe(patientId);
       onTranscriptionQueued();
-    } catch {
-      onError('Transcription failed. Try again or check your API keys.');
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Transcription failed.');
     }
   };
 
@@ -317,8 +317,8 @@ export const PatientWorkspaceRecording: React.FC<Props> = ({
                                 await finishAndTranscribe(s.patientId);
                                 onTranscriptionQueued();
                                 closePanel();
-                              } catch {
-                                onError('Transcription failed.');
+                              } catch (err) {
+                                onError(err instanceof Error ? err.message : 'Transcription failed.');
                               }
                             }}
                             disabled={processingPatientIds.has(s.patientId)}

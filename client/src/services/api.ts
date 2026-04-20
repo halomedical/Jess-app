@@ -372,7 +372,7 @@ export const extractDocumentText = async (params: {
 
 /** Transcribe audio to text only (no SOAP/note generation). Use Halo generate_note for notes. */
 export const transcribeAudio = async (audioBase64: string, mimeType: string): Promise<string> => {
-  const data = await request<{ transcript: string }>('/api/ai/transcribe', {
+  const data = await requestWithTransientRetry<{ transcript: string }>('/api/ai/transcribe', {
     method: 'POST',
     body: JSON.stringify({ audioBase64, mimeType }),
   });

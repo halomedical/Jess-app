@@ -40,8 +40,25 @@ router.post('/', async (req: Request, res: Response) => {
 
     res.json({ transcript, rawTranscript: transcript });
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     console.error('Transcribe error:', err);
-    res.status(500).json({ error: 'Could not transcribe audio.' });
+
+    // Preserve meaningful statuses for clients (cold starts / overload / rate limits / upstream failures).
+    const status =
+      msg.includes('429') ? 429 :
+      msg.includes('503') ? 503 :
+      msg.includes('502') ? 502 :
+      msg.includes('504') ? 504 :
+      msg.startsWith('[Deepgram ') ? 502 :
+      500;
+
+    // Avoid leaking giant upstream payloads; keep it short but informative.
+    const safe =
+      msg.length > 280
+        ? `${msg.slice(0, 280)}…`
+        : msg;
+
+    res.status(status).json({ error: safe || 'Could not transcribe audio.' });
   }
 });
 

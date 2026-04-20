@@ -1,7 +1,8 @@
 import type { Patient, DriveFile, LabAlert, ChatMessage, UserSettings, HaloNote } from '../../../shared/types';
 import type { ClinicalWorkspaceDraft, ClinicalWorkspaceDraftFile } from '../../../shared/workspaceDraft';
+import { getClientApiBase } from '../utils/apiBase';
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+const API_BASE = getClientApiBase();
 
 // --- Structured Error ---
 export class ApiError extends Error {
@@ -28,6 +29,12 @@ function isTransientApiFailure(err: unknown): boolean {
     err.status === 503 ||
     err.status === 504
   );
+}
+
+/** Network layer failures (often cold start / flaky mobile radios) — worth retrying like HTTP 503. */
+function isTransientFetchFailure(err: unknown): boolean {
+  if (isTransientApiFailure(err)) return true;
+  return err instanceof TypeError;
 }
 
 /**
@@ -71,10 +78,14 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
     });
   } catch (error) {
     console.error('[API] Network error:', error);
-    throw new ApiError(
-      `Failed to connect to server. Make sure the server is running on port 3000. ${error instanceof Error ? error.message : 'Unknown error'}`,
-      0
-    );
+    const detail = error instanceof Error ? error.message : 'Unknown error';
+    const pageIsLocal =
+      typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    const hint = pageIsLocal
+      ? `Failed to connect to the API (${detail}). For local dev, start the backend (often port 3000) and keep VITE_API_URL aligned.`
+      : `Can't reach the app backend (${detail}). If the website is hosted separately from the API, rebuild the client with VITE_API_URL set to your backend URL.`;
+    throw new ApiError(hint, 0);
   }
 
   const raw = await res.text();
@@ -427,7 +438,7 @@ export async function fetchNotePreviewPdf(text: string, signal?: AbortSignal): P
     } catch (e) {
       lastError = e;
       if (signal?.aborted) throw e;
-      if (attempt >= maxAttempts || !isTransientApiFailure(e)) throw e;
+      if (attempt >= maxAttempts || !isTransientFetchFailure(e)) throw e;
       const jitter = Math.floor(Math.random() * 250);
       await delay(baseDelayMs * attempt + jitter);
     }
@@ -443,7 +454,7 @@ export const saveNoteAsDocx = (params: {
   fileName?: string;
   user_id?: string;
 }) =>
-  request<{ success: boolean; fileId: string; name: string }>('/api/halo/generate-note', {
+  requestWithTransientRetry<{ success: boolean; fileId: string; name: string }>('/api/halo/generate-note', {
     method: 'POST',
     body: JSON.stringify({
       template_id: params.template_id,

@@ -1262,7 +1262,12 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         const first = res.notes?.[0];
         const content = first?.content?.trim() ? first.content : dictationForModel;
         const createdAt = new Date().toISOString();
-        const label = templateForRun === ECHO_TEMPLATE_ID ? 'Echo Report' : WORKSPACE_TEMPLATE_LABEL;
+        const label =
+          templateForRun === ECHO_TEMPLATE_ID
+            ? 'Echo Report'
+            : templateForRun === ANGIOGRAM_TEMPLATE_ID
+              ? 'Angiogram Report'
+              : WORKSPACE_TEMPLATE_LABEL;
 
         // If there is an active "new note" target that is still empty, fill it instead of creating a duplicate.
         const targetIsEmpty = !!(targetNote && !buildNotePlainText(targetNote).trim());
@@ -1301,18 +1306,38 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         generationTargetNoteIdRef.current = null;
         setPendingTranscript(null);
         pendingTranscriptRef.current = null;
-        onToast(
-          opts?.source === 'auto'
-            ? `${label} note generated.`
-            : 'Note generated. You can edit and save as DOCX.',
-          'success'
-        );
-        suppressDebouncedPdfRefreshRef.current = true;
-        queueMicrotask(() => {
-          void loadPreviewPdfForNote(noteToPreview).finally(() => {
-            suppressDebouncedPdfRefreshRef.current = false;
+
+        const plainForDrive = buildNotePlainText(noteToPreview);
+        const docxText = buildNoteTextWithPatientChart(patientRef.current, plainForDrive);
+        setDocxTask({ phase: 'running', message: 'Saving note to Patient Notes…' });
+        try {
+          await saveNoteAsDocx({
+            patientId: patientRef.current.id,
+            template_id: noteToPreview.template_id || WORKSPACE_TEMPLATE_ID,
+            text: docxText,
+            fileName: sanitizeDocxFileBase(noteToPreview.title || `${label} note`) || undefined,
           });
-        });
+          await loadFolderContents(currentFolderId);
+          onDataChange();
+          setDocxTask({ phase: 'success', message: 'DOCX saved to Patient Notes' });
+          onToast(
+            `${label} note generated and saved for this patient in Google Drive (Patient Notes / DOCX).`,
+            'success'
+          );
+        } catch (saveErr) {
+          setDocxTask({ phase: 'error', message: getErrorMessage(saveErr) });
+          onToast(
+            `${label} note is in the editor, but saving the Word file to Google Drive failed: ${getErrorMessage(saveErr)}. Use Save (DOCX) to retry.`,
+            'error'
+          );
+        }
+
+        suppressDebouncedPdfRefreshRef.current = true;
+        try {
+          await loadPreviewPdfForNote(noteToPreview);
+        } finally {
+          suppressDebouncedPdfRefreshRef.current = false;
+        }
       } catch (err) {
         const msg = getErrorMessage(err);
         setWorkspaceGenerationError(msg);
@@ -1322,7 +1347,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         setWorkspaceNoteGenerating(false);
       }
     },
-    [onToast, loadPreviewPdfForNote]
+    [onToast, loadPreviewPdfForNote, loadFolderContents, currentFolderId, onDataChange]
   );
 
   const handleGenerateFromTemplates = useCallback(() => {

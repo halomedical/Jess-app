@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, ExternalLink, Loader2, FileText, AlertCircle } from 'lucide-react';
 import { getFriendlyFileType } from '../utils/formatting';
+import { getClientApiBase } from '../utils/apiBase';
 
 interface FileViewerProps {
   fileId: string;
@@ -10,7 +11,7 @@ interface FileViewerProps {
   onClose: () => void;
 }
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+const API_BASE = getClientApiBase();
 
 function normalizeMime(mimeType: string): string {
   return (mimeType || '').split(';')[0].trim().toLowerCase();

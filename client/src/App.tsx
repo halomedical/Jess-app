@@ -222,6 +222,7 @@ export const App = () => {
       try {
         const sex = parsed.sex ?? newPatientSex ?? 'M';
         const newP = await createPatient(parsed.name, parsed.dob, sex, {
+          surname: parsed.surname,
           folderNumber: parsed.folderNumber ?? (newPatientFolderNumber.trim() || undefined),
           contactNumber: parsed.contactNumber ?? (newPatientContact.trim() || undefined),
           referringDoctor: parsed.referringDoctor ?? (newPatientReferringDoctor.trim() || undefined),

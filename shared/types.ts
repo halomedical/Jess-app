@@ -3,6 +3,8 @@
 export interface Patient {
   id: string;
   name: string;
+  /** Optional surname (stored in Drive appProperties). */
+  surname?: string;
   dob: string;
   sex: 'M' | 'F';
   lastVisit: string;

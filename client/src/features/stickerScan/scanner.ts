@@ -7,6 +7,7 @@ export type StickerScannerStartResult = {
 type StartStickerScannerOpts = {
   onResult: (rawText: string) => void;
   onStateChange?: (state: ScannerState) => void;
+  onDebug?: (evt: { stage: string; data?: Record<string, unknown> }) => void;
 };
 
 type BarcodeDetectorCtor = new (opts: { formats: string[] }) => {
@@ -22,12 +23,38 @@ export async function startStickerScanner(
   videoEl: HTMLVideoElement,
   opts: StartStickerScannerOpts
 ): Promise<StickerScannerStartResult> {
-  const { onResult, onStateChange } = opts;
+  const { onResult, onStateChange, onDebug } = opts;
 
   let stopped = false;
   let intervalId: number | null = null;
   let zxingStop: null | (() => void) = null;
   let stream: MediaStream | null = null;
+  let ocrIntervalId: number | null = null;
+  let ocrInFlight = false;
+  let lastOcrText = '';
+  let lastEmitAt = 0;
+
+  const emitOnce = (rawText: string, source: 'barcode' | 'ocr') => {
+    const t = rawText.trim();
+    if (!t) return;
+    const now = Date.now();
+    // Guard against duplicate emissions across engines.
+    if (now - lastEmitAt < 1500) return;
+    lastEmitAt = now;
+    onDebug?.({ stage: 'detected', data: { source, len: t.length, sample: t.slice(0, 80) } });
+    onResult(t);
+    stop();
+  };
+
+  const looksLikeValidPatientPayload = async (text: string): Promise<boolean> => {
+    const t = text.trim();
+    if (t.length < 18) return false;
+    // Hard gate for OCR: only accept when we can confidently extract minimum required fields.
+    // This avoids stopping on random background text or UI labels.
+    const { parsePatientSticker } = await import('../../utils/patientSticker');
+    const parsed = parsePatientSticker(t);
+    return !!(parsed.name && parsed.dob);
+  };
 
   const stop = () => {
     if (stopped) return;
@@ -35,6 +62,10 @@ export async function startStickerScanner(
     if (intervalId) {
       window.clearInterval(intervalId);
       intervalId = null;
+    }
+    if (ocrIntervalId) {
+      window.clearInterval(ocrIntervalId);
+      ocrIntervalId = null;
     }
     if (zxingStop) {
       try {
@@ -58,6 +89,7 @@ export async function startStickerScanner(
   };
 
   onStateChange?.('starting');
+  onDebug?.({ stage: 'start', data: {} });
 
   const Detector = getNativeBarcodeDetector();
   if (Detector) {
@@ -74,17 +106,55 @@ export async function startStickerScanner(
     });
 
     onStateChange?.('scanning');
+    onDebug?.({ stage: 'barcode_engine', data: { engine: 'BarcodeDetector' } });
 
     intervalId = window.setInterval(async () => {
       if (stopped) return;
       try {
         const codes = await detector.detect(videoEl);
         const v = codes?.[0]?.rawValue?.trim();
-        if (v) onResult(v);
+        if (v) emitOnce(v, 'barcode');
       } catch {
         // ignore scan errors; keep polling
       }
     }, 350);
+
+    // Start OCR in parallel for text-only stickers.
+    const { recognizeStickerText } = await import('./ocr');
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (ctx) {
+      ocrIntervalId = window.setInterval(async () => {
+        if (stopped || ocrInFlight) return;
+        const vw = videoEl.videoWidth || 0;
+        const vh = videoEl.videoHeight || 0;
+        if (!vw || !vh) return;
+        ocrInFlight = true;
+        try {
+          // Central ROI (tuned for stickers held in the middle)
+          const roiW = Math.floor(vw * 0.75);
+          const roiH = Math.floor(vh * 0.42);
+          const sx = Math.floor((vw - roiW) / 2);
+          const sy = Math.floor((vh - roiH) / 2);
+
+          canvas.width = roiW;
+          canvas.height = roiH;
+          ctx.drawImage(videoEl, sx, sy, roiW, roiH, 0, 0, roiW, roiH);
+
+          const { text, confidence } = await recognizeStickerText(canvas);
+          const cleaned = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+          if (cleaned && cleaned !== lastOcrText) {
+            lastOcrText = cleaned;
+            onDebug?.({ stage: 'ocr_text', data: { confidence, len: cleaned.length, sample: cleaned.slice(0, 80) } });
+            if (await looksLikeValidPatientPayload(cleaned)) emitOnce(cleaned, 'ocr');
+          }
+        } catch (e) {
+          onDebug?.({ stage: 'ocr_error', data: { message: e instanceof Error ? e.message : String(e) } });
+        } finally {
+          ocrInFlight = false;
+        }
+      }, 650);
+    }
 
     return { stop };
   }
@@ -99,11 +169,12 @@ export async function startStickerScanner(
       if (stopped) return;
       const v = result?.getText?.()?.trim?.() ?? '';
       if (!v) return;
-      onResult(v);
+      emitOnce(v, 'barcode');
     }
   );
 
   onStateChange?.('scanning');
+  onDebug?.({ stage: 'barcode_engine', data: { engine: 'ZXing' } });
 
   zxingStop = () => {
     try {
@@ -112,6 +183,40 @@ export async function startStickerScanner(
       // controls.stop() is sufficient cleanup
     }
   };
+
+  // OCR in parallel with ZXing.
+  const { recognizeStickerText } = await import('./ocr');
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (ctx) {
+    ocrIntervalId = window.setInterval(async () => {
+      if (stopped || ocrInFlight) return;
+      const vw = videoEl.videoWidth || 0;
+      const vh = videoEl.videoHeight || 0;
+      if (!vw || !vh) return;
+      ocrInFlight = true;
+      try {
+        const roiW = Math.floor(vw * 0.75);
+        const roiH = Math.floor(vh * 0.42);
+        const sx = Math.floor((vw - roiW) / 2);
+        const sy = Math.floor((vh - roiH) / 2);
+        canvas.width = roiW;
+        canvas.height = roiH;
+        ctx.drawImage(videoEl, sx, sy, roiW, roiH, 0, 0, roiW, roiH);
+        const { text, confidence } = await recognizeStickerText(canvas);
+        const cleaned = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+        if (cleaned && cleaned !== lastOcrText) {
+          lastOcrText = cleaned;
+          onDebug?.({ stage: 'ocr_text', data: { confidence, len: cleaned.length, sample: cleaned.slice(0, 80) } });
+          if (await looksLikeValidPatientPayload(cleaned)) emitOnce(cleaned, 'ocr');
+        }
+      } catch (e) {
+        onDebug?.({ stage: 'ocr_error', data: { message: e instanceof Error ? e.message : String(e) } });
+      } finally {
+        ocrInFlight = false;
+      }
+    }, 650);
+  }
 
   return { stop };
 }

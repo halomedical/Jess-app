@@ -17,6 +17,12 @@ export type StickerScannerProps = {
   className?: string;
 };
 
+function logDebug(stage: string, data?: Record<string, unknown>) {
+  // Keep logs concise but high-signal for debugging field reports.
+  // eslint-disable-next-line no-console
+  console.log('[StickerScan]', stage, data ?? {});
+}
+
 function friendlyCameraError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err ?? '');
   const name = err && typeof err === 'object' && 'name' in err ? String((err as { name?: unknown }).name) : '';
@@ -96,6 +102,7 @@ export const StickerScanner: React.FC<StickerScannerProps> = ({
       try {
         setMessage(null);
         setStatus('requesting_permission');
+        logDebug('permission_request');
 
         // Preflight permission request (must be triggered from user gesture; opening scanner is the gesture).
         // This improves UX on iOS by prompting before we show a black preview.
@@ -105,15 +112,21 @@ export const StickerScanner: React.FC<StickerScannerProps> = ({
 
         if (cancelled) return;
         setStatus('starting_camera');
+        logDebug('starting_camera');
 
         const res: StickerScannerStartResult = await startStickerScanner(videoEl, {
           onResult: (raw) => {
             if (cancelled) return;
+            logDebug('result', { len: raw.length, sample: raw.slice(0, 120) });
             onScan(raw);
           },
           onStateChange: (next) => {
             if (cancelled) return;
             if (next === 'scanning') setStatus('scanning');
+          },
+          onDebug: (evt) => {
+            if (cancelled) return;
+            logDebug(evt.stage, evt.data);
           },
         });
 
@@ -123,12 +136,14 @@ export const StickerScanner: React.FC<StickerScannerProps> = ({
         }
         stopRef.current = res.stop;
         setStatus('scanning');
+        logDebug('scanning');
       } catch (e) {
         if (cancelled) return;
         const msg = friendlyCameraError(e);
         setStatus('error');
         setMessage(msg);
         onError?.(msg);
+        logDebug('error', { message: msg });
         stop();
       }
     };
@@ -166,7 +181,7 @@ export const StickerScanner: React.FC<StickerScannerProps> = ({
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-[12px] border border-[#E5E7EB] bg-black">
+      <div className="relative overflow-hidden rounded-[12px] border border-[#E5E7EB] bg-black">
         <video
           ref={videoRef}
           className="h-48 w-full object-cover"
@@ -174,6 +189,21 @@ export const StickerScanner: React.FC<StickerScannerProps> = ({
           muted
           // Avoid autoPlay; some mobile browsers require play() after srcObject is set.
         />
+
+        {/* Scanning overlay + ROI hint */}
+        {status !== 'error' ? (
+          <>
+            <div className="absolute inset-x-0 top-0 flex items-center justify-center">
+              <div className="mt-2 rounded-full bg-black/50 px-3 py-1 text-[11px] font-semibold text-white">
+                Scanning patient sticker…
+              </div>
+            </div>
+            <div
+              aria-hidden="true"
+              className="absolute left-1/2 top-1/2 h-[42%] w-[75%] -translate-x-1/2 -translate-y-1/2 rounded-[12px] border border-white/40 bg-white/0"
+            />
+          </>
+        ) : null}
       </div>
 
       {message ? (

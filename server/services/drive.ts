@@ -483,6 +483,7 @@ export function parsePatientFolder(f: DriveFileRaw) {
   return {
     id: f.id,
     name: pName || f.name,
+    surname: f.appProperties?.patientSurname?.trim() || undefined,
     dob: pDob || 'Unknown',
     sex: pSex || 'M',
     lastVisit: f.appProperties?.lastNoteDate || f.createdTime?.split('T')[0] || '',

@@ -183,6 +183,7 @@ export const createPatient = (
   dob: string,
   sex: 'M' | 'F',
   opts?: {
+    surname?: string;
     folderNumber?: string;
     contactNumber?: string;
     referringDoctor?: string;
@@ -196,6 +197,7 @@ export const createPatient = (
       name,
       dob,
       sex,
+      ...(opts?.surname?.trim() ? { surname: opts.surname.trim() } : {}),
       ...(opts?.folderNumber?.trim() ? { folderNumber: opts.folderNumber.trim() } : {}),
       ...(opts?.contactNumber?.trim() ? { contactNumber: opts.contactNumber.trim() } : {}),
       ...(opts?.referringDoctor?.trim() ? { referringDoctor: opts.referringDoctor.trim() } : {}),
@@ -208,6 +210,7 @@ export const updatePatient = (
   id: string,
   updates: {
     name?: string;
+    surname?: string;
     dob?: string;
     sex?: string;
     folderNumber?: string;

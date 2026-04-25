@@ -187,6 +187,7 @@ router.get('/scheduler-status', async (_req: Request, res: Response) => {
 router.post('/patients', async (req: Request, res: Response) => {
   try {
     const name = sanitizeString(req.body.name);
+    const surname = sanitizeString(req.body.surname, 120);
     const dob = sanitizeString(req.body.dob);
     const sex = sanitizeString(req.body.sex);
     const folderNumber = sanitizeString(req.body.folderNumber, 80);
@@ -229,6 +230,7 @@ router.post('/patients', async (req: Request, res: Response) => {
         appProperties: {
           type: 'patient_folder',
           patientName: name,
+          ...(surname ? { patientSurname: surname } : {}),
           patientDob: dob,
           patientSex: sex,
           ...(folderNumber ? { patientFolderNumber: folderNumber } : {}),
@@ -252,6 +254,7 @@ router.post('/patients', async (req: Request, res: Response) => {
     res.json({
       id: folder.id,
       name,
+      ...(surname ? { surname } : {}),
       dob,
       sex,
       lastVisit: new Date().toISOString().split('T')[0],
@@ -275,6 +278,8 @@ router.patch('/patients/:id', async (req: Request, res: Response) => {
     const { id } = req.params;
 
     const name = req.body.name ? sanitizeString(req.body.name) : undefined;
+    const surname =
+      req.body.surname !== undefined ? sanitizeString(req.body.surname, 120) : undefined;
     const dob = req.body.dob ? sanitizeString(req.body.dob) : undefined;
     const sex = req.body.sex ? sanitizeString(req.body.sex) : undefined;
     const folderNumber =
@@ -338,6 +343,10 @@ router.patch('/patients/:id', async (req: Request, res: Response) => {
       patientDob: finalDob,
       patientSex: finalSex,
     };
+    if (surname !== undefined) {
+      if (surname) appProperties.patientSurname = surname;
+      else delete appProperties.patientSurname;
+    }
     if (folderNumber !== undefined) {
       appProperties.patientFolderNumber = folderNumber;
     }

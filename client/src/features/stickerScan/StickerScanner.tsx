@@ -92,6 +92,13 @@ export const StickerScanner: React.FC<StickerScannerProps> = ({
     }
 
     let cancelled = false;
+    const noResultTimer = window.setTimeout(() => {
+      if (cancelled) return;
+      setMessage((prev) => {
+        if (prev) return prev;
+        return 'No scan detected yet. Try moving closer, improving lighting, and keep the barcode fully inside the box for a second.';
+      });
+    }, 5000);
 
     const run = async () => {
       const videoEl = videoRef.current;
@@ -155,6 +162,7 @@ export const StickerScanner: React.FC<StickerScannerProps> = ({
 
     return () => {
       cancelled = true;
+      window.clearTimeout(noResultTimer);
       stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

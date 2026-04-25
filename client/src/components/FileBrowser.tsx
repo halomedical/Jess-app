@@ -100,10 +100,10 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
             <button
               type="button"
               onClick={onUploadFile}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-[#4FB6B2] hover:bg-[#3FA6A2] rounded-[10px] transition-colors shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold text-[#1F2937] bg-white hover:bg-[#F1F5F9] border border-[#E5E7EB] rounded-[10px] transition-colors shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
               title="Upload file"
             >
-              <CloudUpload size={15} /> Upload
+              <CloudUpload size={15} className="text-[#4FB6B2]" /> Upload
             </button>
           ) : null}
           <button

@@ -93,6 +93,50 @@ router.post('/lab-alerts', async (req: Request, res: Response) => {
   }
 });
 
+// POST /parse-sticker — convert unstructured sticker text to structured demographics JSON
+router.post('/parse-sticker', async (req: Request, res: Response) => {
+  try {
+    const { rawText } = req.body as { rawText?: string };
+    if (!rawText || typeof rawText !== 'string' || rawText.trim().length < 10) {
+      res.status(400).json({ error: 'rawText is required.' });
+      return;
+    }
+
+    const prompt = `You are extracting patient demographics from OCR/barcode text.\n\n` +
+      `Return ONLY valid JSON with this shape:\n` +
+      `{ \"firstName\": string|null, \"lastName\": string|null, \"dob\": string|null, \"sex\": \"M\"|\"F\"|null, \"phone\": string|null, \"patientId\": string|null }\n\n` +
+      `Rules:\n` +
+      `- dob must be YYYY-MM-DD if possible.\n` +
+      `- sex must be M or F when present.\n` +
+      `- phone should be digits with optional +27 prefix.\n` +
+      `- patientId is MRN/folder/hospital number if present.\n` +
+      `- If uncertain, use null.\n\n` +
+      `TEXT:\n${rawText.trim()}\n`;
+
+    const text = await generateText(prompt);
+    const parsed = safeJsonParse<{
+      firstName: string | null;
+      lastName: string | null;
+      dob: string | null;
+      sex: 'M' | 'F' | null;
+      phone: string | null;
+      patientId: string | null;
+    }>(text, {
+      firstName: null,
+      lastName: null,
+      dob: null,
+      sex: null,
+      phone: null,
+      patientId: null,
+    });
+
+    res.json(parsed);
+  } catch (err) {
+    console.error('Parse sticker error:', err);
+    res.status(500).json({ error: 'Could not parse sticker text.' });
+  }
+});
+
 // POST /analyze-image
 router.post('/analyze-image', async (req: Request, res: Response) => {
   try {

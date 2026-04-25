@@ -1,4 +1,4 @@
-export type ScannerState = 'starting' | 'scanning';
+export type ScannerState = 'starting' | 'scanning' | 'analyzing';
 
 export type StickerScannerStartResult = {
   stop: () => void;
@@ -29,10 +29,13 @@ export async function startStickerScanner(
   let intervalId: number | null = null;
   let zxingStop: null | (() => void) = null;
   let stream: MediaStream | null = null;
-  let ocrIntervalId: number | null = null;
-  let ocrInFlight = false;
-  let lastOcrText = '';
   let lastEmitAt = 0;
+  let ocrInFlight = false;
+  let fallbackTimer: number | null = null;
+  let ocrRetryTimer: number | null = null;
+  let triedFirstOcrAt = 0;
+  let lastOcrSampleHash = '';
+  let hadBarcode = false;
 
   const emitOnce = (rawText: string, source: 'barcode' | 'ocr') => {
     const t = rawText.trim();
@@ -81,9 +84,13 @@ export async function startStickerScanner(
       window.clearInterval(intervalId);
       intervalId = null;
     }
-    if (ocrIntervalId) {
-      window.clearInterval(ocrIntervalId);
-      ocrIntervalId = null;
+    if (fallbackTimer) {
+      window.clearTimeout(fallbackTimer);
+      fallbackTimer = null;
+    }
+    if (ocrRetryTimer) {
+      window.clearTimeout(ocrRetryTimer);
+      ocrRetryTimer = null;
     }
     if (zxingStop) {
       try {
@@ -109,6 +116,66 @@ export async function startStickerScanner(
   onStateChange?.('starting');
   onDebug?.({ stage: 'start', data: {} });
 
+  const runOcrStill = async () => {
+    if (stopped || ocrInFlight) return;
+    const vw = videoEl.videoWidth || 0;
+    const vh = videoEl.videoHeight || 0;
+    if (!vw || !vh) {
+      onDebug?.({ stage: 'ocr_skip', data: { reason: 'video_not_ready' } });
+      return;
+    }
+
+    ocrInFlight = true;
+    onStateChange?.('analyzing');
+    onDebug?.({ stage: 'ocr_capture', data: { vw, vh } });
+
+    try {
+      const { recognizeStickerText } = await import('./ocr');
+
+      // Capture a high-res still (ROI crop) from the live frame.
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return;
+
+      const roiW = Math.floor(vw * 0.85);
+      const roiH = Math.floor(vh * 0.55);
+      const sx = Math.floor((vw - roiW) / 2);
+      const sy = Math.floor((vh - roiH) / 2);
+      canvas.width = roiW;
+      canvas.height = roiH;
+      ctx.drawImage(videoEl, sx, sy, roiW, roiH, 0, 0, roiW, roiH);
+
+      const { text, confidence } = await recognizeStickerText(canvas);
+      const cleaned = (text || '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+      const sample = cleaned.slice(0, 120);
+      const hash = `${confidence ?? 0}:${cleaned.length}:${sample}`;
+      if (hash === lastOcrSampleHash) {
+        onDebug?.({ stage: 'ocr_duplicate', data: { confidence, len: cleaned.length } });
+        return;
+      }
+      lastOcrSampleHash = hash;
+
+      onDebug?.({ stage: 'ocr_text', data: { confidence, len: cleaned.length, sample } });
+
+      if (await shouldAcceptOcr(cleaned)) {
+        emitOnce(cleaned, 'ocr');
+        return;
+      }
+
+      // Not accepted → resume scanning and retry OCR again shortly.
+      onStateChange?.('scanning');
+      const now = Date.now();
+      if (!triedFirstOcrAt) triedFirstOcrAt = now;
+      ocrRetryTimer = window.setTimeout(() => void runOcrStill(), 950);
+    } catch (e) {
+      onDebug?.({ stage: 'ocr_error', data: { message: e instanceof Error ? e.message : String(e) } });
+      onStateChange?.('scanning');
+      ocrRetryTimer = window.setTimeout(() => void runOcrStill(), 1200);
+    } finally {
+      ocrInFlight = false;
+    }
+  };
+
   const Detector = getNativeBarcodeDetector();
   if (Detector) {
     stream = await navigator.mediaDevices.getUserMedia({
@@ -131,48 +198,21 @@ export async function startStickerScanner(
       try {
         const codes = await detector.detect(videoEl);
         const v = codes?.[0]?.rawValue?.trim();
-        if (v) emitOnce(v, 'barcode');
+        if (v) {
+          hadBarcode = true;
+          emitOnce(v, 'barcode');
+        }
       } catch {
         // ignore scan errors; keep polling
       }
     }, 350);
 
-    // Start OCR in parallel for text-only stickers.
-    const { recognizeStickerText } = await import('./ocr');
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (ctx) {
-      ocrIntervalId = window.setInterval(async () => {
-        if (stopped || ocrInFlight) return;
-        const vw = videoEl.videoWidth || 0;
-        const vh = videoEl.videoHeight || 0;
-        if (!vw || !vh) return;
-        ocrInFlight = true;
-        try {
-          // Central ROI (tuned for stickers held in the middle)
-          const roiW = Math.floor(vw * 0.75);
-          const roiH = Math.floor(vh * 0.42);
-          const sx = Math.floor((vw - roiW) / 2);
-          const sy = Math.floor((vh - roiH) / 2);
-
-          canvas.width = roiW;
-          canvas.height = roiH;
-          ctx.drawImage(videoEl, sx, sy, roiW, roiH, 0, 0, roiW, roiH);
-
-          const { text, confidence } = await recognizeStickerText(canvas);
-          const cleaned = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-          if (cleaned && cleaned !== lastOcrText) {
-            lastOcrText = cleaned;
-            onDebug?.({ stage: 'ocr_text', data: { confidence, len: cleaned.length, sample: cleaned.slice(0, 80) } });
-            if (await shouldAcceptOcr(cleaned)) emitOnce(cleaned, 'ocr');
-          }
-        } catch (e) {
-          onDebug?.({ stage: 'ocr_error', data: { message: e instanceof Error ? e.message : String(e) } });
-        } finally {
-          ocrInFlight = false;
-        }
-      }, 650);
-    }
+    // Barcode-first → OCR fallback after ~1.2–1.5s without barcode.
+    fallbackTimer = window.setTimeout(() => {
+      if (stopped) return;
+      if (hadBarcode) return;
+      void runOcrStill();
+    }, 1250);
 
     return { stop };
   }
@@ -187,6 +227,7 @@ export async function startStickerScanner(
       if (stopped) return;
       const v = result?.getText?.()?.trim?.() ?? '';
       if (!v) return;
+      hadBarcode = true;
       emitOnce(v, 'barcode');
     }
   );
@@ -202,39 +243,12 @@ export async function startStickerScanner(
     }
   };
 
-  // OCR in parallel with ZXing.
-  const { recognizeStickerText } = await import('./ocr');
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  if (ctx) {
-    ocrIntervalId = window.setInterval(async () => {
-      if (stopped || ocrInFlight) return;
-      const vw = videoEl.videoWidth || 0;
-      const vh = videoEl.videoHeight || 0;
-      if (!vw || !vh) return;
-      ocrInFlight = true;
-      try {
-        const roiW = Math.floor(vw * 0.75);
-        const roiH = Math.floor(vh * 0.42);
-        const sx = Math.floor((vw - roiW) / 2);
-        const sy = Math.floor((vh - roiH) / 2);
-        canvas.width = roiW;
-        canvas.height = roiH;
-        ctx.drawImage(videoEl, sx, sy, roiW, roiH, 0, 0, roiW, roiH);
-        const { text, confidence } = await recognizeStickerText(canvas);
-        const cleaned = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-        if (cleaned && cleaned !== lastOcrText) {
-          lastOcrText = cleaned;
-          onDebug?.({ stage: 'ocr_text', data: { confidence, len: cleaned.length, sample: cleaned.slice(0, 80) } });
-          if (await shouldAcceptOcr(cleaned)) emitOnce(cleaned, 'ocr');
-        }
-      } catch (e) {
-        onDebug?.({ stage: 'ocr_error', data: { message: e instanceof Error ? e.message : String(e) } });
-      } finally {
-        ocrInFlight = false;
-      }
-    }, 650);
-  }
+  // Barcode-first → OCR fallback after ~1.2–1.5s without barcode.
+  fallbackTimer = window.setTimeout(() => {
+    if (stopped) return;
+    if (hadBarcode) return;
+    void runOcrStill();
+  }, 1250);
 
   return { stop };
 }

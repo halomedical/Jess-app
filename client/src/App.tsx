@@ -11,7 +11,7 @@ import { LogIn, Loader, X, UserPlus, Calendar, Users, AlertTriangle, Trash2, Sca
 import { SignInBranding } from './components/SignInBranding';
 import { EcgRhythmStrip } from './components/EcgRhythmStrip';
 import { parsePatientSticker } from './utils/patientSticker';
-import { transcribeAudio } from './services/api';
+import { parseStickerWithAi, transcribeAudio } from './services/api';
 import { StickerScanner } from './features/stickerScan/StickerScanner';
 import { interpretStickerText } from './features/stickerScan/interpreter';
 
@@ -217,6 +217,41 @@ export const App = () => {
 
       // No manual fallback: if interpretation is not acceptable, keep scanning until valid (or user closes).
       if (!interpreted.debug.decision.accepted) {
+        // LLM fallback: attempt to structure messy OCR/barcode text.
+        try {
+          const ai = await parseStickerWithAi(v);
+          const firstNameAi = ai.firstName?.trim() || '';
+          const lastNameAi = ai.lastName?.trim() || '';
+          const dobAi = ai.dob?.trim() || '';
+          const idAi = ai.patientId?.trim() || '';
+
+          if (firstNameAi && (dobAi || idAi)) {
+            setLoading(true);
+            const sexAi = ai.sex ?? newPatientSex ?? 'M';
+            const nameCombined = lastNameAi ? `${firstNameAi} ${lastNameAi}` : firstNameAi;
+            const newP = await createPatient(nameCombined, dobAi || newPatientDob, sexAi, {
+              surname: lastNameAi || undefined,
+              folderNumber: idAi || undefined,
+              contactNumber: ai.phone || undefined,
+              referringDoctor: parsed.referringDoctor ?? (newPatientReferringDoctor.trim() || undefined),
+              visitType: newPatientVisitType,
+              visitDate: newPatientVisitDate,
+            });
+            if (newP) {
+              await refreshPatients();
+              selectPatient(newP.id);
+              setShowCreateModal(false);
+              resetCreatePatientForm();
+              showToast('Patient folder created successfully.', 'success');
+              return;
+            }
+          }
+        } catch {
+          // ignore; keep scanning
+        } finally {
+          setLoading(false);
+        }
+
         setStickerError('Still scanning… hold the sticker steady in the box.');
         setStickerScannerOpen(true);
         return;

@@ -6,6 +6,7 @@ type StickerScannerStatus =
   | 'idle'
   | 'requesting_permission'
   | 'starting_camera'
+  | 'analyzing'
   | 'scanning'
   | 'error';
 
@@ -65,6 +66,7 @@ export const StickerScanner: React.FC<StickerScannerProps> = ({
   const title = useMemo(() => {
     if (status === 'requesting_permission') return 'Requesting camera permission…';
     if (status === 'starting_camera') return 'Starting camera…';
+    if (status === 'analyzing') return 'Analyzing sticker…';
     if (status === 'scanning') return 'Scanning…';
     if (status === 'error') return 'Camera error';
     return 'Scan patient sticker';
@@ -122,6 +124,7 @@ export const StickerScanner: React.FC<StickerScannerProps> = ({
           },
           onStateChange: (next) => {
             if (cancelled) return;
+            if (next === 'analyzing') setStatus('analyzing');
             if (next === 'scanning') setStatus('scanning');
           },
           onDebug: (evt) => {

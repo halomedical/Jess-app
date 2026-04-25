@@ -393,6 +393,23 @@ export const transcribeAudio = async (audioBase64: string, mimeType: string): Pr
   return data.transcript ?? '';
 };
 
+export const parseStickerWithAi = async (rawText: string): Promise<{
+  firstName?: string;
+  lastName?: string;
+  dob?: string;
+  sex?: 'M' | 'F';
+  phone?: string;
+  patientId?: string;
+}> => {
+  return request<{ firstName?: string; lastName?: string; dob?: string; sex?: 'M' | 'F'; phone?: string; patientId?: string }>(
+    '/api/ai/parse-sticker',
+    {
+      method: 'POST',
+      body: JSON.stringify({ rawText }),
+    }
+  );
+};
+
 // --- Halo API (note generation + templates) ---
 export const getHaloTemplates = (userId?: string) =>
   request<Record<string, unknown>>('/api/halo/templates', {

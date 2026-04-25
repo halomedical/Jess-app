@@ -12,6 +12,7 @@ import { SignInBranding } from './components/SignInBranding';
 import { EcgRhythmStrip } from './components/EcgRhythmStrip';
 import { parsePatientSticker } from './utils/patientSticker';
 import { transcribeAudio } from './services/api';
+import { StickerScanner } from './features/stickerScan/StickerScanner';
 
 export const App = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -35,11 +36,7 @@ export const App = () => {
   const [newPatientVisitDate, setNewPatientVisitDate] = useState("");
   const [stickerRaw, setStickerRaw] = useState('');
   const [stickerError, setStickerError] = useState<string | null>(null);
-  const [stickerCameraOpen, setStickerCameraOpen] = useState(false);
-  const stickerVideoRef = React.useRef<HTMLVideoElement | null>(null);
-  const stickerStreamRef = React.useRef<MediaStream | null>(null);
-  const stickerScanTickRef = React.useRef<number | null>(null);
-  const stickerZxingStopRef = React.useRef<null | (() => void)>(null);
+  const [stickerScannerOpen, setStickerScannerOpen] = useState(false);
   const [dictatingDetails, setDictatingDetails] = useState(false);
   const detailsRecorderRef = React.useRef<MediaRecorder | null>(null);
   const detailsChunksRef = React.useRef<Blob[]>([]);
@@ -176,28 +173,9 @@ export const App = () => {
     setNewPatientVisitDate(localIsoDate());
     setStickerRaw('');
     setStickerError(null);
-    setStickerCameraOpen(false);
+    setStickerScannerOpen(false);
     setShowCreateModal(true);
   };
-
-  const stopStickerCamera = useCallback(() => {
-    if (stickerZxingStopRef.current) {
-      try {
-        stickerZxingStopRef.current();
-      } catch {
-        // ignore
-      }
-      stickerZxingStopRef.current = null;
-    }
-    if (stickerScanTickRef.current) {
-      window.clearInterval(stickerScanTickRef.current);
-      stickerScanTickRef.current = null;
-    }
-    stickerStreamRef.current?.getTracks().forEach((t) => t.stop());
-    stickerStreamRef.current = null;
-    if (stickerVideoRef.current) stickerVideoRef.current.srcObject = null;
-    setStickerCameraOpen(false);
-  }, []);
 
   const applyStickerParsed = useCallback((raw: string) => {
     const parsed = parsePatientSticker(raw);
@@ -209,78 +187,75 @@ export const App = () => {
     if (parsed.referringDoctor) setNewPatientReferringDoctor(parsed.referringDoctor);
   }, []);
 
-  const startStickerCamera = useCallback(async () => {
+  const resetCreatePatientForm = useCallback(() => {
+    setNewPatientName("");
+    setNewPatientDob("");
+    setNewPatientSex("M");
+    setNewPatientFolderNumber("");
+    setNewPatientContact("");
+    setNewPatientReferringDoctor("");
+    setNewPatientVisitType('new');
+    setNewPatientVisitDate(localIsoDate());
+    setStickerRaw('');
     setStickerError(null);
-    setStickerCameraOpen(true);
-    try {
-      const Detector = (window as any).BarcodeDetector as
-        | undefined
-        | (new (opts: { formats: string[] }) => { detect: (video: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>> });
+    setStickerScannerOpen(false);
+  }, []);
 
-      // Prefer the native BarcodeDetector (fast, low CPU). Fall back to ZXing for iOS Safari and others.
-      if (Detector) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-          audio: false,
+  const handleStickerScan = useCallback(
+    async (rawText: string) => {
+      const v = rawText.trim();
+      if (!v) return;
+      setStickerScannerOpen(false);
+      setStickerRaw(v);
+      setStickerError(null);
+
+      const parsed = parsePatientSticker(v);
+      applyStickerParsed(v);
+
+      // Auto-create only when we have minimum required fields.
+      if (!parsed.name || !parsed.dob) {
+        setStickerError('Scan captured, but some fields are missing (name/DOB). Please confirm or type them in, then tap Create Folder.');
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const sex = parsed.sex ?? newPatientSex ?? 'M';
+        const newP = await createPatient(parsed.name, parsed.dob, sex, {
+          folderNumber: parsed.folderNumber ?? (newPatientFolderNumber.trim() || undefined),
+          contactNumber: parsed.contactNumber ?? (newPatientContact.trim() || undefined),
+          referringDoctor: parsed.referringDoctor ?? (newPatientReferringDoctor.trim() || undefined),
+          visitType: newPatientVisitType,
+          visitDate: newPatientVisitDate,
         });
-        stickerStreamRef.current = stream;
-        if (stickerVideoRef.current) {
-          stickerVideoRef.current.srcObject = stream;
-          await stickerVideoRef.current.play().catch(() => {});
+        if (newP) {
+          await refreshPatients();
+          selectPatient(newP.id);
+          setShowCreateModal(false);
+          resetCreatePatientForm();
+          showToast('Patient folder created successfully.', 'success');
         }
-
-        const detector = new Detector({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'ean_8', 'pdf417', 'datamatrix'] });
-        if (stickerScanTickRef.current) window.clearInterval(stickerScanTickRef.current);
-        stickerScanTickRef.current = window.setInterval(async () => {
-          const video = stickerVideoRef.current;
-          if (!video) return;
-          try {
-            const codes = await detector.detect(video);
-            const v = codes?.[0]?.rawValue?.trim();
-            if (v) {
-              setStickerRaw(v);
-              applyStickerParsed(v);
-              stopStickerCamera();
-            }
-          } catch {
-            // ignore scan errors; keep polling
-          }
-        }, 400);
-        return;
+      } catch (error) {
+        setStickerError(getErrorMessage(error));
+      } finally {
+        setLoading(false);
       }
-
-      const videoEl = stickerVideoRef.current;
-      if (!videoEl) {
-        setStickerError('Camera not ready. Please try again.');
-        stopStickerCamera();
-        return;
-      }
-
-      const { BrowserMultiFormatReader } = await import('@zxing/browser');
-      const reader = new BrowserMultiFormatReader();
-      const controls = await reader.decodeFromConstraints(
-        { video: { facingMode: 'environment' }, audio: false },
-        videoEl,
-        (result) => {
-          const v = result?.getText?.()?.trim?.() ?? '';
-          if (!v) return;
-          setStickerRaw(v);
-          applyStickerParsed(v);
-          stopStickerCamera();
-        }
-      );
-      stickerZxingStopRef.current = () => {
-        try {
-          controls?.stop?.();
-        } finally {
-          // controls.stop() is sufficient; avoid relying on reader-specific cleanup APIs
-        }
-      };
-    } catch (e) {
-      setStickerError(getErrorMessage(e));
-      stopStickerCamera();
-    }
-  }, [applyStickerParsed, getErrorMessage, stopStickerCamera]);
+    },
+    [
+      applyStickerParsed,
+      getErrorMessage,
+      newPatientContact,
+      newPatientFolderNumber,
+      newPatientReferringDoctor,
+      newPatientSex,
+      newPatientVisitDate,
+      newPatientVisitType,
+      refreshPatients,
+      resetCreatePatientForm,
+      selectPatient,
+      showToast,
+    ]
+  );
 
   const startDictateDetails = useCallback(async () => {
     setStickerError(null);
@@ -369,14 +344,7 @@ export const App = () => {
         await refreshPatients();
         selectPatient(newP.id);
         setShowCreateModal(false);
-        setNewPatientName("");
-        setNewPatientDob("");
-        setNewPatientSex("M");
-        setNewPatientFolderNumber("");
-        setNewPatientContact("");
-        setNewPatientReferringDoctor("");
-        setNewPatientVisitType('new');
-        setNewPatientVisitDate(localIsoDate());
+        resetCreatePatientForm();
         showToast('Patient folder created successfully.', 'success');
       }
     } catch (error) {
@@ -561,7 +529,7 @@ export const App = () => {
               <h2 className="text-xl font-bold text-[#1F2937] flex items-center gap-2"><UserPlus className="text-[#4FB6B2]" size={24}/> New Patient Folder</h2>
               <button
                 onClick={() => {
-                  stopStickerCamera();
+                  setStickerScannerOpen(false);
                   setShowCreateModal(false);
                 }}
                 className="text-[#9CA3AF] hover:text-[#1F2937] p-1 rounded-full hover:bg-[#F1F5F9] transition"
@@ -604,12 +572,15 @@ export const App = () => {
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={() => (stickerCameraOpen ? stopStickerCamera() : void startStickerCamera())}
+                        onClick={() => {
+                          setStickerError(null);
+                          setStickerScannerOpen((prev) => !prev);
+                        }}
                         className="min-h-[44px] rounded-[10px] border border-[#E5E7EB] bg-white px-3 text-sm font-bold text-[#1F2937] hover:bg-[#F1F5F9]"
                         title="Use camera to scan QR/barcode"
                       >
                         <ScanLine className="h-4 w-4 inline-block mr-2 text-[#4FB6B2]" />
-                        {stickerCameraOpen ? 'Stop' : 'Camera'}
+                        {stickerScannerOpen ? 'Stop' : 'Camera'}
                       </button>
                       <button
                         type="button"
@@ -629,11 +600,13 @@ export const App = () => {
                       {stickerError}
                     </p>
                   ) : null}
-                  {stickerCameraOpen ? (
-                    <div className="mt-3 overflow-hidden rounded-[12px] border border-[#E5E7EB] bg-black">
-                      <video ref={stickerVideoRef} className="h-48 w-full object-cover" playsInline muted />
-                    </div>
-                  ) : null}
+                  <StickerScanner
+                    isOpen={stickerScannerOpen}
+                    onClose={() => setStickerScannerOpen(false)}
+                    onScan={(rawText) => void handleStickerScan(rawText)}
+                    onError={(msg) => setStickerError(msg)}
+                    className={stickerScannerOpen ? 'mt-3' : 'hidden'}
+                  />
                 </div>
 
                 <div>
@@ -701,7 +674,7 @@ export const App = () => {
                   <button
                     type="button"
                     onClick={() => {
-                      stopStickerCamera();
+                      setStickerScannerOpen(false);
                       setShowCreateModal(false);
                     }}
                     className="flex-1 px-4 py-3 rounded-[10px] font-medium text-[#1F2937] bg-white border border-[#E5E7EB] hover:bg-[#F1F5F9] transition"

@@ -46,14 +46,32 @@ export async function startStickerScanner(
     stop();
   };
 
-  const looksLikeValidPatientPayload = async (text: string): Promise<boolean> => {
+  const shouldAcceptOcr = async (text: string): Promise<boolean> => {
     const t = text.trim();
-    if (t.length < 18) return false;
-    // Hard gate for OCR: only accept when we can confidently extract minimum required fields.
-    // This avoids stopping on random background text or UI labels.
-    const { parsePatientSticker } = await import('../../utils/patientSticker');
-    const parsed = parsePatientSticker(t);
-    return !!(parsed.name && parsed.dob);
+    if (t.length < 18) {
+      onDebug?.({ stage: 'ocr_reject', data: { reason: 'too_short', len: t.length } });
+      return false;
+    }
+    const { interpretStickerText } = await import('./interpreter');
+    const { debug } = interpretStickerText(t);
+    onDebug?.({
+      stage: 'interpret',
+      data: {
+        firstName: debug.detected.firstName,
+        surname: debug.detected.surname,
+        dob: debug.detected.dob,
+        folderNumber: debug.detected.folderNumber,
+        sex: debug.detected.sex,
+        contactNumber: debug.detected.contactNumber,
+        decision: debug.decision,
+      },
+    });
+    if (!debug.decision.accepted) {
+      onDebug?.({ stage: 'ocr_reject', data: { reason: debug.decision.reason } });
+      return false;
+    }
+    onDebug?.({ stage: 'ocr_accept', data: { reason: debug.decision.reason } });
+    return true;
   };
 
   const stop = () => {
@@ -146,7 +164,7 @@ export async function startStickerScanner(
           if (cleaned && cleaned !== lastOcrText) {
             lastOcrText = cleaned;
             onDebug?.({ stage: 'ocr_text', data: { confidence, len: cleaned.length, sample: cleaned.slice(0, 80) } });
-            if (await looksLikeValidPatientPayload(cleaned)) emitOnce(cleaned, 'ocr');
+            if (await shouldAcceptOcr(cleaned)) emitOnce(cleaned, 'ocr');
           }
         } catch (e) {
           onDebug?.({ stage: 'ocr_error', data: { message: e instanceof Error ? e.message : String(e) } });
@@ -208,7 +226,7 @@ export async function startStickerScanner(
         if (cleaned && cleaned !== lastOcrText) {
           lastOcrText = cleaned;
           onDebug?.({ stage: 'ocr_text', data: { confidence, len: cleaned.length, sample: cleaned.slice(0, 80) } });
-          if (await looksLikeValidPatientPayload(cleaned)) emitOnce(cleaned, 'ocr');
+          if (await shouldAcceptOcr(cleaned)) emitOnce(cleaned, 'ocr');
         }
       } catch (e) {
         onDebug?.({ stage: 'ocr_error', data: { message: e instanceof Error ? e.message : String(e) } });

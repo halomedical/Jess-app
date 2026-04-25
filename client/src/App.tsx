@@ -13,6 +13,7 @@ import { EcgRhythmStrip } from './components/EcgRhythmStrip';
 import { parsePatientSticker } from './utils/patientSticker';
 import { transcribeAudio } from './services/api';
 import { StickerScanner } from './features/stickerScan/StickerScanner';
+import { interpretStickerText } from './features/stickerScan/interpreter';
 
 export const App = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -209,22 +210,40 @@ export const App = () => {
       setStickerRaw(v);
       setStickerError(null);
 
+      // OCR output may be unlabelled; infer structure first, but keep existing parser for prefill.
+      const interpreted = interpretStickerText(v);
       const parsed = parsePatientSticker(v);
       applyStickerParsed(v);
 
-      // Auto-create only when we have minimum required fields.
-      if (!parsed.name || !parsed.dob) {
-        setStickerError('Scan captured, but some fields are missing (name/DOB). Please confirm or type them in, then tap Create Folder.');
+      // No manual fallback: if interpretation is not acceptable, keep scanning until valid (or user closes).
+      if (!interpreted.debug.decision.accepted) {
+        setStickerError('Still scanning… hold the sticker steady in the box.');
+        setStickerScannerOpen(true);
+        return;
+      }
+
+      const firstName = interpreted.patient.firstName?.trim() || parsed.name?.trim();
+      const dob = interpreted.patient.dob || parsed.dob;
+      if (!firstName || !dob) {
+        // Safety: interpreter should have validated this, but never auto-create incomplete records.
+        setStickerError('Still scanning… hold the sticker steady in the box.');
+        setStickerScannerOpen(true);
         return;
       }
 
       setLoading(true);
       try {
-        const sex = parsed.sex ?? newPatientSex ?? 'M';
-        const newP = await createPatient(parsed.name, parsed.dob, sex, {
-          surname: parsed.surname,
-          folderNumber: parsed.folderNumber ?? (newPatientFolderNumber.trim() || undefined),
-          contactNumber: parsed.contactNumber ?? (newPatientContact.trim() || undefined),
+        const sex = interpreted.patient.sex ?? parsed.sex ?? newPatientSex ?? 'M';
+        const newP = await createPatient(firstName, dob, sex, {
+          surname: interpreted.patient.surname ?? parsed.surname,
+          folderNumber:
+            interpreted.patient.folderNumber ??
+            parsed.folderNumber ??
+            (newPatientFolderNumber.trim() || undefined),
+          contactNumber:
+            interpreted.patient.contactNumber ??
+            parsed.contactNumber ??
+            (newPatientContact.trim() || undefined),
           referringDoctor: parsed.referringDoctor ?? (newPatientReferringDoctor.trim() || undefined),
           visitType: newPatientVisitType,
           visitDate: newPatientVisitDate,

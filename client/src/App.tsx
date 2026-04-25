@@ -39,6 +39,7 @@ export const App = () => {
   const stickerVideoRef = React.useRef<HTMLVideoElement | null>(null);
   const stickerStreamRef = React.useRef<MediaStream | null>(null);
   const stickerScanTickRef = React.useRef<number | null>(null);
+  const stickerZxingStopRef = React.useRef<null | (() => void)>(null);
   const [dictatingDetails, setDictatingDetails] = useState(false);
   const detailsRecorderRef = React.useRef<MediaRecorder | null>(null);
   const detailsChunksRef = React.useRef<Blob[]>([]);
@@ -180,6 +181,14 @@ export const App = () => {
   };
 
   const stopStickerCamera = useCallback(() => {
+    if (stickerZxingStopRef.current) {
+      try {
+        stickerZxingStopRef.current();
+      } catch {
+        // ignore
+      }
+      stickerZxingStopRef.current = null;
+    }
     if (stickerScanTickRef.current) {
       window.clearInterval(stickerScanTickRef.current);
       stickerScanTickRef.current = null;
@@ -204,39 +213,69 @@ export const App = () => {
     setStickerError(null);
     setStickerCameraOpen(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
-        audio: false,
-      });
-      stickerStreamRef.current = stream;
-      if (stickerVideoRef.current) {
-        stickerVideoRef.current.srcObject = stream;
-        await stickerVideoRef.current.play().catch(() => {});
-      }
       const Detector = (window as any).BarcodeDetector as
         | undefined
         | (new (opts: { formats: string[] }) => { detect: (video: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>> });
-      if (!Detector) {
-        setStickerError('Camera scanning is not supported in this browser. Use a USB scanner or paste the sticker text.');
+
+      // Prefer the native BarcodeDetector (fast, low CPU). Fall back to ZXing for iOS Safari and others.
+      if (Detector) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+          audio: false,
+        });
+        stickerStreamRef.current = stream;
+        if (stickerVideoRef.current) {
+          stickerVideoRef.current.srcObject = stream;
+          await stickerVideoRef.current.play().catch(() => {});
+        }
+
+        const detector = new Detector({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'ean_8', 'pdf417', 'datamatrix'] });
+        if (stickerScanTickRef.current) window.clearInterval(stickerScanTickRef.current);
+        stickerScanTickRef.current = window.setInterval(async () => {
+          const video = stickerVideoRef.current;
+          if (!video) return;
+          try {
+            const codes = await detector.detect(video);
+            const v = codes?.[0]?.rawValue?.trim();
+            if (v) {
+              setStickerRaw(v);
+              applyStickerParsed(v);
+              stopStickerCamera();
+            }
+          } catch {
+            // ignore scan errors; keep polling
+          }
+        }, 400);
         return;
       }
-      const detector = new Detector({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'ean_8', 'pdf417', 'datamatrix'] });
-      if (stickerScanTickRef.current) window.clearInterval(stickerScanTickRef.current);
-      stickerScanTickRef.current = window.setInterval(async () => {
-        const video = stickerVideoRef.current;
-        if (!video) return;
-        try {
-          const codes = await detector.detect(video);
-          const v = codes?.[0]?.rawValue?.trim();
-          if (v) {
-            setStickerRaw(v);
-            applyStickerParsed(v);
-            stopStickerCamera();
-          }
-        } catch {
-          // ignore scan errors; keep polling
+
+      const videoEl = stickerVideoRef.current;
+      if (!videoEl) {
+        setStickerError('Camera not ready. Please try again.');
+        stopStickerCamera();
+        return;
+      }
+
+      const { BrowserMultiFormatReader } = await import('@zxing/browser');
+      const reader = new BrowserMultiFormatReader();
+      const controls = await reader.decodeFromConstraints(
+        { video: { facingMode: 'environment' }, audio: false },
+        videoEl,
+        (result) => {
+          const v = result?.getText?.()?.trim?.() ?? '';
+          if (!v) return;
+          setStickerRaw(v);
+          applyStickerParsed(v);
+          stopStickerCamera();
         }
-      }, 400);
+      );
+      stickerZxingStopRef.current = () => {
+        try {
+          controls?.stop?.();
+        } finally {
+          // controls.stop() is sufficient; avoid relying on reader-specific cleanup APIs
+        }
+      };
     } catch (e) {
       setStickerError(getErrorMessage(e));
       stopStickerCamera();

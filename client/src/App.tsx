@@ -523,24 +523,24 @@ export const App = () => {
       {/* CREATE PATIENT MODAL */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-[#1F2937]/25 backdrop-blur-[2px] p-0 sm:p-4 safe-pad-b">
-          <div className="bg-[#F7FAF8] rounded-t-[16px] sm:rounded-[16px] border border-[#DDE8E2] shadow-[0_8px_30px_rgba(15,23,42,0.08)] w-full max-w-lg max-h-[90dvh] overflow-y-auto p-5 sm:p-6 sm:m-4">
+          <div className="bg-white rounded-t-[12px] sm:rounded-[12px] border border-[#E5E7EB] shadow-[0_1px_2px_rgba(0,0,0,0.05)] w-full max-w-lg max-h-[90dvh] overflow-y-auto p-5 sm:p-6 sm:m-4">
             <div className="flex justify-between items-center mb-5">
               <h2 className="text-lg sm:text-xl font-bold text-[#1F2937] flex items-center gap-2">
-                <UserPlus className="text-[#6FA08C]" size={22} /> New Patient Folder
+                <UserPlus className="text-[#4FB6B2]" size={22} /> New Patient Folder
               </h2>
               <button
                 onClick={() => {
                   setStickerCameraOpen(false);
                   setShowCreateModal(false);
                 }}
-                className="text-[#9CA3AF] hover:text-[#1F2937] p-1 rounded-full hover:bg-white/80 transition"
+                className="text-[#9CA3AF] hover:text-[#1F2937] p-1 rounded-full hover:bg-[#F1F5F9] transition"
               >
                 <X size={20} />
               </button>
             </div>
             <form onSubmit={submitCreatePatient}>
               <div className="space-y-5">
-                <div className="rounded-[14px] border border-[#DDE8E2] bg-white/90 p-4 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
+                <div className="rounded-[12px] border border-[#E5E7EB] bg-[#F7F9FB] p-4">
                   <input
                     ref={stickerGalleryInputRef}
                     type="file"
@@ -560,7 +560,7 @@ export const App = () => {
                         setStickerError(null);
                         stickerGalleryInputRef.current?.click();
                       }}
-                      className="min-h-[48px] rounded-[12px] bg-[#6FA08C] hover:bg-[#5F8F7C] text-white text-sm font-bold shadow-[0_1px_2px_rgba(0,0,0,0.06)] disabled:opacity-50 flex items-center justify-center gap-2"
+                      className="min-h-[48px] rounded-[12px] bg-[#4FB6B2] hover:bg-[#3FA6A2] text-white text-sm font-bold shadow-[0_1px_2px_rgba(0,0,0,0.05)] disabled:opacity-50 flex items-center justify-center gap-2"
                     >
                       <Upload className="h-4 w-4" />
                       Gallery
@@ -572,9 +572,9 @@ export const App = () => {
                         setStickerError(null);
                         setStickerCameraOpen(true);
                       }}
-                      className="min-h-[48px] rounded-[12px] border border-[#DDE8E2] bg-white text-[#1F2937] text-sm font-bold hover:bg-[#F4F7F5] disabled:opacity-50 flex items-center justify-center gap-2"
+                      className="min-h-[48px] rounded-[12px] border border-[#E5E7EB] bg-white text-[#1F2937] text-sm font-bold hover:bg-[#F1F5F9] disabled:opacity-50 flex items-center justify-center gap-2"
                     >
-                      <Camera className="h-4 w-4 text-[#6FA08C]" />
+                      <Camera className="h-4 w-4 text-[#4FB6B2]" />
                       Live camera
                     </button>
                   </div>
@@ -614,7 +614,7 @@ export const App = () => {
                       placeholder="e.g. Sarah Connor"
                       value={newPatientName}
                       onChange={(e) => setNewPatientName(e.target.value)}
-                      className="w-full min-h-[48px] pl-4 pr-11 py-3 rounded-[12px] border border-[#C9D9D0] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                      className="w-full min-h-[48px] pl-4 pr-11 py-3 rounded-[12px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
                     />
                     <User className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-[#9CA3AF]" />
                   </div>
@@ -622,27 +622,27 @@ export const App = () => {
                 <div className="flex flex-col gap-4 sm:flex-row sm:gap-4">
                   <div className="flex-1 min-w-0">
                     <label className="block text-sm font-semibold text-[#4B5563] mb-1.5 flex items-center gap-1">
-                      <Calendar size={14} className="text-[#6FA08C]" /> Date of Birth <span className="text-rose-500">*</span>
+                      <Calendar size={14} className="text-[#4FB6B2]" /> Date of Birth <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="date"
                       value={newPatientDob}
                       onChange={(e) => setNewPatientDob(e.target.value)}
-                      className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                      className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
                     />
                   </div>
                   <div className="sm:w-[38%]">
                     <label className="block text-sm font-semibold text-[#4B5563] mb-1.5 flex items-center gap-1">
-                      <Users size={14} className="text-[#6FA08C]" /> Sex
+                      <Users size={14} className="text-[#4FB6B2]" /> Sex
                     </label>
-                    <div className="flex bg-[#EEF4F1] p-1 rounded-[12px] border border-[#DDE8E2]">
+                    <div className="flex bg-[#F1F5F9] p-1 rounded-[12px] border border-[#E5E7EB]">
                       <button
                         type="button"
                         onClick={() => setNewPatientSex('M')}
                         className={`flex-1 min-h-[40px] rounded-[10px] text-sm font-bold transition-all ${
                           newPatientSex === 'M'
-                            ? 'bg-[#D8E8DF] text-[#2F4A3C] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]'
-                            : 'text-[#6B7280] hover:text-[#374151]'
+                            ? 'bg-white text-[#4FB6B2] shadow-[0_1px_2px_rgba(0,0,0,0.05)]'
+                            : 'text-[#9CA3AF] hover:text-[#6B7280]'
                         }`}
                       >
                         M
@@ -652,8 +652,8 @@ export const App = () => {
                         onClick={() => setNewPatientSex('F')}
                         className={`flex-1 min-h-[40px] rounded-[10px] text-sm font-bold transition-all ${
                           newPatientSex === 'F'
-                            ? 'bg-[#D8E8DF] text-[#2F4A3C] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]'
-                            : 'text-[#6B7280] hover:text-[#374151]'
+                            ? 'bg-white text-[#4FB6B2] shadow-[0_1px_2px_rgba(0,0,0,0.05)]'
+                            : 'text-[#9CA3AF] hover:text-[#6B7280]'
                         }`}
                       >
                         F
@@ -668,7 +668,7 @@ export const App = () => {
                     placeholder="e.g. 082 123 4567"
                     value={newPatientContact}
                     onChange={(e) => setNewPatientContact(e.target.value)}
-                    className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                    className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
                   />
                 </div>
 
@@ -681,7 +681,7 @@ export const App = () => {
                         type="text"
                         value={newPatientIdNumber}
                         onChange={(e) => setNewPatientIdNumber(e.target.value)}
-                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
                       />
                     </div>
                     <div>
@@ -690,7 +690,7 @@ export const App = () => {
                         type="text"
                         value={newPatientFolderNumber}
                         onChange={(e) => setNewPatientFolderNumber(e.target.value)}
-                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
                       />
                     </div>
                     <div>
@@ -699,7 +699,7 @@ export const App = () => {
                         type="text"
                         value={newPatientWard}
                         onChange={(e) => setNewPatientWard(e.target.value)}
-                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
                       />
                     </div>
                     <div>
@@ -708,7 +708,7 @@ export const App = () => {
                         type="text"
                         value={newPatientMedicalAidName}
                         onChange={(e) => setNewPatientMedicalAidName(e.target.value)}
-                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
                       />
                     </div>
                     <div>
@@ -717,7 +717,7 @@ export const App = () => {
                         type="text"
                         value={newPatientMedicalAidPackage}
                         onChange={(e) => setNewPatientMedicalAidPackage(e.target.value)}
-                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
                       />
                     </div>
                     <div>
@@ -726,7 +726,7 @@ export const App = () => {
                         type="text"
                         value={newPatientMedicalAidMemberNumber}
                         onChange={(e) => setNewPatientMedicalAidMemberNumber(e.target.value)}
-                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
                       />
                     </div>
                   </div>
@@ -738,7 +738,7 @@ export const App = () => {
                     type="tel"
                     value={newPatientMedicalAidPhone}
                     onChange={(e) => setNewPatientMedicalAidPhone(e.target.value)}
-                    className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                    className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
                   />
                 </div>
                 <div>
@@ -747,7 +747,7 @@ export const App = () => {
                     rows={4}
                     value={newPatientStickerNotes}
                     onChange={(e) => setNewPatientStickerNotes(e.target.value)}
-                    className="w-full resize-y min-h-[120px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                    className="w-full resize-y min-h-[120px] px-4 py-3 rounded-[12px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
                   />
                 </div>
 
@@ -758,19 +758,19 @@ export const App = () => {
                     placeholder="e.g. Dr A. Nkomo"
                     value={newPatientReferringDoctor}
                     onChange={(e) => setNewPatientReferringDoctor(e.target.value)}
-                    className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                    className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-[#4B5563] mb-1.5">Patient visit</label>
-                  <div className="flex bg-[#EEF4F1] p-1 rounded-[12px] gap-1 border border-[#DDE8E2]">
+                  <div className="flex bg-[#F1F5F9] p-1 rounded-[12px] gap-1 border border-[#E5E7EB]">
                     <button
                       type="button"
                       onClick={() => setNewPatientVisitType('new')}
                       className={`flex-1 py-2.5 rounded-[10px] text-sm font-bold transition-all ${
                         newPatientVisitType === 'new'
-                          ? 'bg-[#D8E8DF] text-[#2F4A3C] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]'
-                          : 'text-[#6B7280] hover:text-[#374151]'
+                          ? 'bg-white text-[#4FB6B2] shadow-[0_1px_2px_rgba(0,0,0,0.05)]'
+                          : 'text-[#9CA3AF] hover:text-[#6B7280]'
                       }`}
                     >
                       New patient
@@ -780,8 +780,8 @@ export const App = () => {
                       onClick={() => setNewPatientVisitType('follow_up')}
                       className={`flex-1 py-2.5 rounded-[10px] text-sm font-bold transition-all ${
                         newPatientVisitType === 'follow_up'
-                          ? 'bg-[#D8E8DF] text-[#2F4A3C] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]'
-                          : 'text-[#6B7280] hover:text-[#374151]'
+                          ? 'bg-white text-[#4FB6B2] shadow-[0_1px_2px_rgba(0,0,0,0.05)]'
+                          : 'text-[#9CA3AF] hover:text-[#6B7280]'
                       }`}
                     >
                       Follow-up
@@ -790,13 +790,13 @@ export const App = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-[#4B5563] mb-1.5 flex items-center gap-1">
-                    <Calendar size={14} className="text-[#6FA08C]" /> Visit date <span className="text-rose-500">*</span>
+                    <Calendar size={14} className="text-[#4FB6B2]" /> Visit date <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="date"
                     value={newPatientVisitDate}
                     onChange={(e) => setNewPatientVisitDate(e.target.value)}
-                    className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                    className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
                   />
                   <p className="text-xs text-[#6B7280] mt-1">Defaults to today.</p>
                 </div>
@@ -807,14 +807,14 @@ export const App = () => {
                       setStickerCameraOpen(false);
                       setShowCreateModal(false);
                     }}
-                    className="flex-1 px-4 py-3 rounded-[12px] font-semibold text-[#1F2937] bg-white border border-[#DDE8E2] hover:bg-[#F4F7F5] transition"
+                    className="flex-1 px-4 py-3 rounded-[12px] font-semibold text-[#1F2937] bg-white border border-[#E5E7EB] hover:bg-[#F1F5F9] transition"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={!newPatientName.trim() || !newPatientDob || !newPatientVisitDate || loading}
-                    className="flex-1 bg-[#6FA08C] hover:bg-[#5F8F7C] text-white px-4 py-3 rounded-[12px] font-bold shadow-[0_1px_2px_rgba(0,0,0,0.06)] disabled:opacity-50 transition flex items-center justify-center gap-2"
+                    className="flex-1 bg-[#4FB6B2] hover:bg-[#3FA6A2] text-white px-4 py-3 rounded-[12px] font-bold shadow-[0_1px_2px_rgba(0,0,0,0.05)] disabled:opacity-50 transition flex items-center justify-center gap-2"
                   >
                     {loading ? <Loader className="animate-spin" size={18}/> : 'Create Folder'}
                   </button>

@@ -11,9 +11,8 @@ import { LogIn, Loader, X, UserPlus, Calendar, Users, AlertTriangle, Trash2, Sca
 import { SignInBranding } from './components/SignInBranding';
 import { EcgRhythmStrip } from './components/EcgRhythmStrip';
 import { parsePatientSticker } from './utils/patientSticker';
-import { parseStickerWithAi, transcribeAudio } from './services/api';
-import { StickerScanner } from './features/stickerScan/StickerScanner';
-import { interpretStickerText } from './features/stickerScan/interpreter';
+import { transcribeAudio } from './services/api';
+import { PatientStickerCapture, type ParsedStickerFields } from './features/stickerScan2/PatientStickerCapture';
 
 export const App = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -37,7 +36,7 @@ export const App = () => {
   const [newPatientVisitDate, setNewPatientVisitDate] = useState("");
   const [stickerRaw, setStickerRaw] = useState('');
   const [stickerError, setStickerError] = useState<string | null>(null);
-  const [stickerScannerOpen, setStickerScannerOpen] = useState(false);
+  const [stickerCaptureOpen, setStickerCaptureOpen] = useState(false);
   const [dictatingDetails, setDictatingDetails] = useState(false);
   const detailsRecorderRef = React.useRef<MediaRecorder | null>(null);
   const detailsChunksRef = React.useRef<Blob[]>([]);
@@ -174,7 +173,7 @@ export const App = () => {
     setNewPatientVisitDate(localIsoDate());
     setStickerRaw('');
     setStickerError(null);
-    setStickerScannerOpen(false);
+    setStickerCaptureOpen(false);
     setShowCreateModal(true);
   };
 
@@ -199,118 +198,18 @@ export const App = () => {
     setNewPatientVisitDate(localIsoDate());
     setStickerRaw('');
     setStickerError(null);
-    setStickerScannerOpen(false);
+    setStickerCaptureOpen(false);
   }, []);
 
-  const handleStickerScan = useCallback(
-    async (rawText: string) => {
-      const v = rawText.trim();
-      if (!v) return;
-      setStickerScannerOpen(false);
-      setStickerRaw(v);
-      setStickerError(null);
-
-      // OCR output may be unlabelled; infer structure first, but keep existing parser for prefill.
-      const interpreted = interpretStickerText(v);
-      const parsed = parsePatientSticker(v);
-      applyStickerParsed(v);
-
-      // No manual fallback: if interpretation is not acceptable, keep scanning until valid (or user closes).
-      if (!interpreted.debug.decision.accepted) {
-        // LLM fallback: attempt to structure messy OCR/barcode text.
-        try {
-          const ai = await parseStickerWithAi(v);
-          const firstNameAi = ai.firstName?.trim() || '';
-          const lastNameAi = ai.lastName?.trim() || '';
-          const dobAi = ai.dob?.trim() || '';
-          const idAi = ai.patientId?.trim() || '';
-
-          if (firstNameAi && (dobAi || idAi)) {
-            setLoading(true);
-            const sexAi = ai.sex ?? newPatientSex ?? 'M';
-            const nameCombined = lastNameAi ? `${firstNameAi} ${lastNameAi}` : firstNameAi;
-            const newP = await createPatient(nameCombined, dobAi || newPatientDob, sexAi, {
-              surname: lastNameAi || undefined,
-              folderNumber: idAi || undefined,
-              contactNumber: ai.phone || undefined,
-              referringDoctor: parsed.referringDoctor ?? (newPatientReferringDoctor.trim() || undefined),
-              visitType: newPatientVisitType,
-              visitDate: newPatientVisitDate,
-            });
-            if (newP) {
-              await refreshPatients();
-              selectPatient(newP.id);
-              setShowCreateModal(false);
-              resetCreatePatientForm();
-              showToast('Patient folder created successfully.', 'success');
-              return;
-            }
-          }
-        } catch {
-          // ignore; keep scanning
-        } finally {
-          setLoading(false);
-        }
-
-        setStickerError('Still scanning… hold the sticker steady in the box.');
-        setStickerScannerOpen(true);
-        return;
-      }
-
-      const firstName = interpreted.patient.firstName?.trim() || parsed.name?.trim();
-      const dob = interpreted.patient.dob || parsed.dob;
-      if (!firstName || !dob) {
-        // Safety: interpreter should have validated this, but never auto-create incomplete records.
-        setStickerError('Still scanning… hold the sticker steady in the box.');
-        setStickerScannerOpen(true);
-        return;
-      }
-
-      setLoading(true);
-      try {
-        const sex = interpreted.patient.sex ?? parsed.sex ?? newPatientSex ?? 'M';
-        const newP = await createPatient(firstName, dob, sex, {
-          surname: interpreted.patient.surname ?? parsed.surname,
-          folderNumber:
-            interpreted.patient.folderNumber ??
-            parsed.folderNumber ??
-            (newPatientFolderNumber.trim() || undefined),
-          contactNumber:
-            interpreted.patient.contactNumber ??
-            parsed.contactNumber ??
-            (newPatientContact.trim() || undefined),
-          referringDoctor: parsed.referringDoctor ?? (newPatientReferringDoctor.trim() || undefined),
-          visitType: newPatientVisitType,
-          visitDate: newPatientVisitDate,
-        });
-        if (newP) {
-          await refreshPatients();
-          selectPatient(newP.id);
-          setShowCreateModal(false);
-          resetCreatePatientForm();
-          showToast('Patient folder created successfully.', 'success');
-        }
-      } catch (error) {
-        setStickerError(getErrorMessage(error));
-      } finally {
-        setLoading(false);
-      }
-    },
-    [
-      applyStickerParsed,
-      getErrorMessage,
-      newPatientContact,
-      newPatientFolderNumber,
-      newPatientReferringDoctor,
-      newPatientSex,
-      newPatientVisitDate,
-      newPatientVisitType,
-      refreshPatients,
-      resetCreatePatientForm,
-      selectPatient,
-      showToast,
-    ]
-  );
+  const applyParsedStickerFields = useCallback((fields: ParsedStickerFields) => {
+    const first = (fields.firstName ?? '').trim();
+    const last = (fields.lastName ?? '').trim();
+    const fullName = `${first} ${last}`.trim();
+    if (fullName) setNewPatientName(fullName);
+    if (fields.dob) setNewPatientDob(fields.dob);
+    if (fields.cellphoneNumber) setNewPatientContact(fields.cellphoneNumber);
+    if (fields.hospitalFolderNumber) setNewPatientFolderNumber(fields.hospitalFolderNumber);
+  }, []);
 
   const startDictateDetails = useCallback(async () => {
     setStickerError(null);
@@ -584,7 +483,7 @@ export const App = () => {
               <h2 className="text-xl font-bold text-[#1F2937] flex items-center gap-2"><UserPlus className="text-[#4FB6B2]" size={24}/> New Patient Folder</h2>
               <button
                 onClick={() => {
-                  setStickerScannerOpen(false);
+                  setStickerCaptureOpen(false);
                   setShowCreateModal(false);
                 }}
                 className="text-[#9CA3AF] hover:text-[#1F2937] p-1 rounded-full hover:bg-[#F1F5F9] transition"
@@ -629,13 +528,13 @@ export const App = () => {
                         type="button"
                         onClick={() => {
                           setStickerError(null);
-                          setStickerScannerOpen((prev) => !prev);
+                          setStickerCaptureOpen((prev) => !prev);
                         }}
                         className="min-h-[44px] rounded-[10px] border border-[#E5E7EB] bg-white px-3 text-sm font-bold text-[#1F2937] hover:bg-[#F1F5F9]"
-                        title="Use camera to scan QR/barcode"
+                        title="Capture sticker photo"
                       >
                         <ScanLine className="h-4 w-4 inline-block mr-2 text-[#4FB6B2]" />
-                        {stickerScannerOpen ? 'Stop' : 'Camera'}
+                        {stickerCaptureOpen ? 'Stop' : 'Camera'}
                       </button>
                       <button
                         type="button"
@@ -655,12 +554,15 @@ export const App = () => {
                       {stickerError}
                     </p>
                   ) : null}
-                  <StickerScanner
-                    isOpen={stickerScannerOpen}
-                    onClose={() => setStickerScannerOpen(false)}
-                    onScan={(rawText) => void handleStickerScan(rawText)}
-                    onError={(msg) => setStickerError(msg)}
-                    className={stickerScannerOpen ? 'mt-3' : 'hidden'}
+                  <PatientStickerCapture
+                    isOpen={stickerCaptureOpen}
+                    onClose={() => setStickerCaptureOpen(false)}
+                    onParsed={(fields, rawOcrText) => {
+                      setStickerRaw(rawOcrText);
+                      applyParsedStickerFields(fields);
+                      setStickerError(null);
+                      setStickerCaptureOpen(false);
+                    }}
                   />
                 </div>
 
@@ -729,7 +631,7 @@ export const App = () => {
                   <button
                     type="button"
                     onClick={() => {
-                      setStickerScannerOpen(false);
+                      setStickerCaptureOpen(false);
                       setShowCreateModal(false);
                     }}
                     className="flex-1 px-4 py-3 rounded-[10px] font-medium text-[#1F2937] bg-white border border-[#E5E7EB] hover:bg-[#F1F5F9] transition"

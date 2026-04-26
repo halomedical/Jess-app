@@ -137,6 +137,50 @@ router.post('/parse-sticker', async (req: Request, res: Response) => {
   }
 });
 
+// POST /parse-patient-sticker — convert messy OCR sticker text to strict demographics JSON
+router.post('/parse-patient-sticker', async (req: Request, res: Response) => {
+  try {
+    const { rawText } = req.body as { rawText?: string };
+    if (!rawText || typeof rawText !== 'string' || rawText.trim().length < 10) {
+      res.status(400).json({ error: 'rawText is required.' });
+      return;
+    }
+
+    const prompt =
+      `You are a medical data parser.\n` +
+      `Extract the following information from the provided raw, messy OCR text of a hospital patient sticker.\n` +
+      `Return ONLY a valid JSON object with these exact keys:\n` +
+      `firstName, lastName, dob, cellphoneNumber, hospitalFolderNumber\n\n` +
+      `Rules:\n` +
+      `- dob must be formatted YYYY-MM-DD when possible.\n` +
+      `- cellphoneNumber should be a phone number string if present.\n` +
+      `- hospitalFolderNumber is the MRN/folder/hospital number if present.\n` +
+      `- If a field cannot be found, return null for that key.\n` +
+      `- Assume the most prominent unrecognized text strings are the names.\n\n` +
+      `TEXT:\n${rawText.trim()}\n`;
+
+    const text = await generateText(prompt);
+    const parsed = safeJsonParse<{
+      firstName: string | null;
+      lastName: string | null;
+      dob: string | null;
+      cellphoneNumber: string | null;
+      hospitalFolderNumber: string | null;
+    }>(text, {
+      firstName: null,
+      lastName: null,
+      dob: null,
+      cellphoneNumber: null,
+      hospitalFolderNumber: null,
+    });
+
+    res.json(parsed);
+  } catch (err) {
+    console.error('Parse patient sticker error:', err);
+    res.status(500).json({ error: 'Could not parse patient sticker text.' });
+  }
+});
+
 // POST /analyze-image
 router.post('/analyze-image', async (req: Request, res: Response) => {
   try {

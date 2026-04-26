@@ -393,7 +393,28 @@ export const transcribeAudio = async (audioBase64: string, mimeType: string): Pr
   return data.transcript ?? '';
 };
 
-// v2 sticker parser endpoint will replace this (parse-patient-sticker).
+export type ExtractedPatientSticker = {
+  firstName: string | null;
+  lastName: string | null;
+  dob: string | null; // YYYY-MM-DD
+  cellphoneNumber: string | null;
+  hospitalFolderNumber: string | null;
+};
+
+/** Gemini vision: sticker photo → demographics JSON. */
+export const extractPatientFromSticker = async (
+  base64Image: string,
+  mimeType = 'image/jpeg'
+): Promise<ExtractedPatientSticker> =>
+  request<ExtractedPatientSticker>('/api/ai/extract-patient-sticker', {
+    method: 'POST',
+    body: JSON.stringify({ base64Image, mimeType }),
+  });
+
+export async function extractPatientFromStickerFile(file: File): Promise<ExtractedPatientSticker> {
+  const base64 = await fileToBase64(file);
+  return extractPatientFromSticker(base64, file.type || 'image/jpeg');
+}
 
 // --- Halo API (note generation + templates) ---
 export const getHaloTemplates = (userId?: string) =>

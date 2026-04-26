@@ -11,6 +11,7 @@ import {
   searchPrompt,
   chatSystemPrompt,
 } from '../utils/prompts';
+import { patientStickerExtractionPrompt } from '../utils/patientStickerPrompt';
 
 const router = Router();
 router.use(requireAuth);
@@ -178,6 +179,49 @@ router.post('/parse-patient-sticker', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Parse patient sticker error:', err);
     res.status(500).json({ error: 'Could not parse patient sticker text.' });
+  }
+});
+
+// POST /extract-patient-sticker — Gemini vision: sticker photo → demographics JSON
+router.post('/extract-patient-sticker', async (req: Request, res: Response) => {
+  try {
+    const { base64Image, mimeType } = req.body as { base64Image?: string; mimeType?: string };
+
+    if (!base64Image || typeof base64Image !== 'string') {
+      res.status(400).json({ error: 'base64Image is required.' });
+      return;
+    }
+
+    const cleanBase64 = base64Image.split(',')[1] || base64Image;
+    const mime =
+      mimeType && /^image\/(jpeg|png|gif|webp|bmp)$/i.test(mimeType)
+        ? mimeType
+        : 'image/jpeg';
+
+    const raw = await analyzeImage(patientStickerExtractionPrompt(), cleanBase64, mime);
+    const fallback = {
+      firstName: null,
+      lastName: null,
+      dob: null,
+      cellphoneNumber: null,
+      hospitalFolderNumber: null,
+    } as const;
+    const parsed = safeJsonParse<typeof fallback & Record<string, unknown>>(raw, { ...fallback });
+
+    const strOrNull = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    const dob = strOrNull(parsed.dob);
+    const normalizedDob = dob && /^\d{4}-\d{2}-\d{2}$/.test(dob) ? dob : null;
+
+    res.json({
+      firstName: strOrNull(parsed.firstName),
+      lastName: strOrNull(parsed.lastName),
+      dob: normalizedDob,
+      cellphoneNumber: strOrNull(parsed.cellphoneNumber),
+      hospitalFolderNumber: strOrNull(parsed.hospitalFolderNumber),
+    });
+  } catch (err) {
+    console.error('[ai/extract-patient-sticker] error:', err);
+    res.status(500).json({ error: 'Could not read image. Try a clearer photo.' });
   }
 });
 

@@ -12,7 +12,8 @@ import { SignInBranding } from './components/SignInBranding';
 import { EcgRhythmStrip } from './components/EcgRhythmStrip';
 import { parsePatientSticker } from './utils/patientSticker';
 import { transcribeAudio } from './services/api';
-import { PatientStickerCapture, type ParsedStickerFields } from './features/stickerScan2/PatientStickerCapture';
+import { extractPatientFromStickerFile, type ExtractedPatientSticker } from './services/api';
+import { StickerCameraModal } from './features/stickerScan2/StickerCameraModal';
 
 export const App = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -36,7 +37,8 @@ export const App = () => {
   const [newPatientVisitDate, setNewPatientVisitDate] = useState("");
   const [stickerRaw, setStickerRaw] = useState('');
   const [stickerError, setStickerError] = useState<string | null>(null);
-  const [stickerCaptureOpen, setStickerCaptureOpen] = useState(false);
+  const [stickerCameraOpen, setStickerCameraOpen] = useState(false);
+  const [stickerBusy, setStickerBusy] = useState(false);
   const [dictatingDetails, setDictatingDetails] = useState(false);
   const detailsRecorderRef = React.useRef<MediaRecorder | null>(null);
   const detailsChunksRef = React.useRef<Blob[]>([]);
@@ -173,7 +175,8 @@ export const App = () => {
     setNewPatientVisitDate(localIsoDate());
     setStickerRaw('');
     setStickerError(null);
-    setStickerCaptureOpen(false);
+    setStickerCameraOpen(false);
+    setStickerBusy(false);
     setShowCreateModal(true);
   };
 
@@ -198,18 +201,37 @@ export const App = () => {
     setNewPatientVisitDate(localIsoDate());
     setStickerRaw('');
     setStickerError(null);
-    setStickerCaptureOpen(false);
+    setStickerCameraOpen(false);
+    setStickerBusy(false);
   }, []);
 
-  const applyParsedStickerFields = useCallback((fields: ParsedStickerFields) => {
-    const first = (fields.firstName ?? '').trim();
-    const last = (fields.lastName ?? '').trim();
+  const applyExtractedSticker = useCallback((ex: ExtractedPatientSticker) => {
+    const first = (ex.firstName ?? '').trim();
+    const last = (ex.lastName ?? '').trim();
     const fullName = `${first} ${last}`.trim();
     if (fullName) setNewPatientName(fullName);
-    if (fields.dob) setNewPatientDob(fields.dob);
-    if (fields.cellphoneNumber) setNewPatientContact(fields.cellphoneNumber);
-    if (fields.hospitalFolderNumber) setNewPatientFolderNumber(fields.hospitalFolderNumber);
+    if (ex.dob && /^\d{4}-\d{2}-\d{2}$/.test(ex.dob)) setNewPatientDob(ex.dob);
+    if (ex.cellphoneNumber?.trim()) setNewPatientContact(ex.cellphoneNumber.trim());
+    if (ex.hospitalFolderNumber?.trim()) setNewPatientFolderNumber(ex.hospitalFolderNumber.trim());
   }, []);
+
+  const applyStickerFromFile = useCallback(async (f: File) => {
+    if (!f.type.startsWith('image/')) {
+      showToast('Please use an image file.', 'info');
+      return;
+    }
+    setStickerBusy(true);
+    setStickerError(null);
+    try {
+      const ex = await extractPatientFromStickerFile(f);
+      applyExtractedSticker(ex);
+      showToast('Review fields, then create folder.', 'success');
+    } catch (error) {
+      setStickerError(getErrorMessage(error));
+    } finally {
+      setStickerBusy(false);
+    }
+  }, [applyExtractedSticker, getErrorMessage, showToast]);
 
   const startDictateDetails = useCallback(async () => {
     setStickerError(null);
@@ -483,7 +505,7 @@ export const App = () => {
               <h2 className="text-xl font-bold text-[#1F2937] flex items-center gap-2"><UserPlus className="text-[#4FB6B2]" size={24}/> New Patient Folder</h2>
               <button
                 onClick={() => {
-                  setStickerCaptureOpen(false);
+                  setStickerCameraOpen(false);
                   setShowCreateModal(false);
                 }}
                 className="text-[#9CA3AF] hover:text-[#1F2937] p-1 rounded-full hover:bg-[#F1F5F9] transition"
@@ -528,13 +550,13 @@ export const App = () => {
                         type="button"
                         onClick={() => {
                           setStickerError(null);
-                          setStickerCaptureOpen((prev) => !prev);
+                          setStickerCameraOpen((prev) => !prev);
                         }}
                         className="min-h-[44px] rounded-[10px] border border-[#E5E7EB] bg-white px-3 text-sm font-bold text-[#1F2937] hover:bg-[#F1F5F9]"
                         title="Capture sticker photo"
                       >
                         <ScanLine className="h-4 w-4 inline-block mr-2 text-[#4FB6B2]" />
-                        {stickerCaptureOpen ? 'Stop' : 'Camera'}
+                        {stickerCameraOpen ? 'Stop' : 'Camera'}
                       </button>
                       <button
                         type="button"
@@ -554,15 +576,13 @@ export const App = () => {
                       {stickerError}
                     </p>
                   ) : null}
-                  <PatientStickerCapture
-                    isOpen={stickerCaptureOpen}
-                    onClose={() => setStickerCaptureOpen(false)}
-                    onParsed={(fields, rawOcrText) => {
-                      setStickerRaw(rawOcrText);
-                      applyParsedStickerFields(fields);
-                      setStickerError(null);
-                      setStickerCaptureOpen(false);
-                    }}
+                  {stickerBusy ? (
+                    <p className="mt-2 text-[11px] text-[#6B7280] font-medium">Reading sticker text…</p>
+                  ) : null}
+                  <StickerCameraModal
+                    isOpen={stickerCameraOpen}
+                    onClose={() => setStickerCameraOpen(false)}
+                    onCapture={(file) => void applyStickerFromFile(file)}
                   />
                 </div>
 
@@ -631,7 +651,7 @@ export const App = () => {
                   <button
                     type="button"
                     onClick={() => {
-                      setStickerCaptureOpen(false);
+                      setStickerCameraOpen(false);
                       setShowCreateModal(false);
                     }}
                     className="flex-1 px-4 py-3 rounded-[10px] font-medium text-[#1F2937] bg-white border border-[#E5E7EB] hover:bg-[#F1F5F9] transition"

@@ -202,22 +202,45 @@ router.post('/extract-patient-sticker', async (req: Request, res: Response) => {
     const fallback = {
       firstName: null,
       lastName: null,
+      sex: null,
       dob: null,
       cellphoneNumber: null,
+      idNumber: null,
       hospitalFolderNumber: null,
+      ward: null,
+      medicalAidName: null,
+      medicalAidPackage: null,
+      medicalAidMemberNumber: null,
+      medicalAidPhone: null,
+      rawNotes: null,
     } as const;
     const parsed = safeJsonParse<typeof fallback & Record<string, unknown>>(raw, { ...fallback });
 
     const strOrNull = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
     const dob = strOrNull(parsed.dob);
     const normalizedDob = dob && /^\d{4}-\d{2}-\d{2}$/.test(dob) ? dob : null;
+    const sexRaw = strOrNull(parsed.sex)?.toUpperCase() ?? null;
+    const sex =
+      sexRaw === 'M' || sexRaw === 'MALE'
+        ? ('M' as const)
+        : sexRaw === 'F' || sexRaw === 'FEMALE'
+          ? ('F' as const)
+          : null;
 
     res.json({
       firstName: strOrNull(parsed.firstName),
       lastName: strOrNull(parsed.lastName),
+      sex,
       dob: normalizedDob,
       cellphoneNumber: strOrNull(parsed.cellphoneNumber),
+      idNumber: strOrNull(parsed.idNumber),
       hospitalFolderNumber: strOrNull(parsed.hospitalFolderNumber),
+      ward: strOrNull(parsed.ward),
+      medicalAidName: strOrNull(parsed.medicalAidName),
+      medicalAidPackage: strOrNull(parsed.medicalAidPackage),
+      medicalAidMemberNumber: strOrNull(parsed.medicalAidMemberNumber),
+      medicalAidPhone: strOrNull(parsed.medicalAidPhone),
+      rawNotes: strOrNull(parsed.rawNotes),
     });
   } catch (err) {
     console.error('[ai/extract-patient-sticker] error:', err);

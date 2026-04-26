@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { PatientWorkspace } from './pages/PatientWorkspace';
 import { RecordingSessionsProvider } from './features/scribe/RecordingSessionsContext';
@@ -7,7 +7,7 @@ import { Toast } from './components/Toast';
 import { SettingsModal } from './components/SettingsModal';
 import { checkAuth, getLoginUrl, logout, fetchAllPatients, createPatient, deletePatient, loadSettings, saveSettings, ApiError } from './services/api';
 import type { Patient, UserSettings } from '../../shared/types';
-import { LogIn, Loader, X, UserPlus, Calendar, Users, AlertTriangle, Trash2, ScanLine, Mic } from 'lucide-react';
+import { LogIn, Loader, X, UserPlus, Calendar, Users, AlertTriangle, Trash2, Mic, Camera, Upload, User } from 'lucide-react';
 import { SignInBranding } from './components/SignInBranding';
 import { EcgRhythmStrip } from './components/EcgRhythmStrip';
 import { parsePatientSticker } from './utils/patientSticker';
@@ -31,17 +31,24 @@ export const App = () => {
   const [newPatientDob, setNewPatientDob] = useState("");
   const [newPatientSex, setNewPatientSex] = useState<'M' | 'F'>('M');
   const [newPatientFolderNumber, setNewPatientFolderNumber] = useState("");
+  const [newPatientIdNumber, setNewPatientIdNumber] = useState("");
+  const [newPatientWard, setNewPatientWard] = useState("");
+  const [newPatientMedicalAidName, setNewPatientMedicalAidName] = useState("");
+  const [newPatientMedicalAidPackage, setNewPatientMedicalAidPackage] = useState("");
+  const [newPatientMedicalAidMemberNumber, setNewPatientMedicalAidMemberNumber] = useState("");
+  const [newPatientMedicalAidPhone, setNewPatientMedicalAidPhone] = useState("");
+  const [newPatientStickerNotes, setNewPatientStickerNotes] = useState("");
   const [newPatientContact, setNewPatientContact] = useState("");
   const [newPatientReferringDoctor, setNewPatientReferringDoctor] = useState("");
   const [newPatientVisitType, setNewPatientVisitType] = useState<'new' | 'follow_up'>('new');
   const [newPatientVisitDate, setNewPatientVisitDate] = useState("");
-  const [stickerRaw, setStickerRaw] = useState('');
   const [stickerError, setStickerError] = useState<string | null>(null);
   const [stickerCameraOpen, setStickerCameraOpen] = useState(false);
   const [stickerBusy, setStickerBusy] = useState(false);
   const [dictatingDetails, setDictatingDetails] = useState(false);
   const detailsRecorderRef = React.useRef<MediaRecorder | null>(null);
   const detailsChunksRef = React.useRef<Blob[]>([]);
+  const stickerGalleryInputRef = useRef<HTMLInputElement | null>(null);
 
   const localIsoDate = () => {
     const d = new Date();
@@ -173,7 +180,6 @@ export const App = () => {
   const openCreateModal = () => {
     setLoading(false);
     setNewPatientVisitDate(localIsoDate());
-    setStickerRaw('');
     setStickerError(null);
     setStickerCameraOpen(false);
     setStickerBusy(false);
@@ -195,11 +201,17 @@ export const App = () => {
     setNewPatientDob("");
     setNewPatientSex("M");
     setNewPatientFolderNumber("");
+    setNewPatientIdNumber("");
+    setNewPatientWard("");
+    setNewPatientMedicalAidName("");
+    setNewPatientMedicalAidPackage("");
+    setNewPatientMedicalAidMemberNumber("");
+    setNewPatientMedicalAidPhone("");
+    setNewPatientStickerNotes("");
     setNewPatientContact("");
     setNewPatientReferringDoctor("");
     setNewPatientVisitType('new');
     setNewPatientVisitDate(localIsoDate());
-    setStickerRaw('');
     setStickerError(null);
     setStickerCameraOpen(false);
     setStickerBusy(false);
@@ -211,8 +223,16 @@ export const App = () => {
     const fullName = `${first} ${last}`.trim();
     if (fullName) setNewPatientName(fullName);
     if (ex.dob && /^\d{4}-\d{2}-\d{2}$/.test(ex.dob)) setNewPatientDob(ex.dob);
+    if (ex.sex === 'M' || ex.sex === 'F') setNewPatientSex(ex.sex);
     if (ex.cellphoneNumber?.trim()) setNewPatientContact(ex.cellphoneNumber.trim());
     if (ex.hospitalFolderNumber?.trim()) setNewPatientFolderNumber(ex.hospitalFolderNumber.trim());
+    if (ex.idNumber?.trim()) setNewPatientIdNumber(ex.idNumber.trim());
+    if (ex.ward?.trim()) setNewPatientWard(ex.ward.trim());
+    if (ex.medicalAidName?.trim()) setNewPatientMedicalAidName(ex.medicalAidName.trim());
+    if (ex.medicalAidPackage?.trim()) setNewPatientMedicalAidPackage(ex.medicalAidPackage.trim());
+    if (ex.medicalAidMemberNumber?.trim()) setNewPatientMedicalAidMemberNumber(ex.medicalAidMemberNumber.trim());
+    if (ex.medicalAidPhone?.trim()) setNewPatientMedicalAidPhone(ex.medicalAidPhone.trim());
+    if (ex.rawNotes?.trim()) setNewPatientStickerNotes(ex.rawNotes.trim());
   }, []);
 
   const applyStickerFromFile = useCallback(async (f: File) => {
@@ -266,9 +286,12 @@ export const App = () => {
             setStickerError('No speech detected for patient details.');
             return;
           }
-          // Fast path: treat dictated details like sticker text (many clinicians will say "Name..., DOB..., male/female...")
-          setStickerRaw(transcript);
           applyStickerParsed(transcript);
+          setNewPatientStickerNotes((prev) => {
+            const t = transcript.trim();
+            if (!t) return prev;
+            return prev.trim() ? `${prev.trim()}\n\n${t}` : t;
+          });
         } catch (err) {
           setStickerError(getErrorMessage(err));
         } finally {
@@ -500,84 +523,80 @@ export const App = () => {
       {/* CREATE PATIENT MODAL */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-[#1F2937]/25 backdrop-blur-[2px] p-0 sm:p-4 safe-pad-b">
-          <div className="bg-white rounded-t-[12px] sm:rounded-[12px] border border-[#E5E7EB] shadow-[0_1px_2px_rgba(0,0,0,0.05)] w-full max-w-lg max-h-[90dvh] overflow-y-auto p-6 sm:m-4">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-[#1F2937] flex items-center gap-2"><UserPlus className="text-[#4FB6B2]" size={24}/> New Patient Folder</h2>
+          <div className="bg-[#F7FAF8] rounded-t-[16px] sm:rounded-[16px] border border-[#DDE8E2] shadow-[0_8px_30px_rgba(15,23,42,0.08)] w-full max-w-lg max-h-[90dvh] overflow-y-auto p-5 sm:p-6 sm:m-4">
+            <div className="flex justify-between items-center mb-5">
+              <h2 className="text-lg sm:text-xl font-bold text-[#1F2937] flex items-center gap-2">
+                <UserPlus className="text-[#6FA08C]" size={22} /> New Patient Folder
+              </h2>
               <button
                 onClick={() => {
                   setStickerCameraOpen(false);
                   setShowCreateModal(false);
                 }}
-                className="text-[#9CA3AF] hover:text-[#1F2937] p-1 rounded-full hover:bg-[#F1F5F9] transition"
+                className="text-[#9CA3AF] hover:text-[#1F2937] p-1 rounded-full hover:bg-white/80 transition"
               >
                 <X size={20} />
               </button>
             </div>
             <form onSubmit={submitCreatePatient}>
-              <div className="space-y-4">
-                <div className="rounded-[12px] border border-[#E5E7EB] bg-[#F7F9FB] p-3">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-[#6B7280] mb-2">
-                    Scan patient sticker
-                  </label>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <div className="flex-1">
-                      <input
-                        autoFocus
-                        type="text"
-                        placeholder="Scan barcode/QR (USB scanner) or paste sticker text…"
-                        value={stickerRaw}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setStickerRaw(v);
-                          setStickerError(null);
-                          if (v.trim().length >= 6) applyStickerParsed(v);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            if (!stickerRaw.trim()) return;
-                            applyStickerParsed(stickerRaw);
-                          }
-                        }}
-                        className="w-full min-h-[44px] px-4 py-3 rounded-[10px] border border-[#E5E7EB] bg-white text-sm text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
-                      />
-                      <p className="mt-1 text-[11px] text-[#9CA3AF]">
-                        Tip: most scanners “type” then press Enter automatically.
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setStickerError(null);
-                          setStickerCameraOpen((prev) => !prev);
-                        }}
-                        className="min-h-[44px] rounded-[10px] border border-[#E5E7EB] bg-white px-3 text-sm font-bold text-[#1F2937] hover:bg-[#F1F5F9]"
-                        title="Capture sticker photo"
-                      >
-                        <ScanLine className="h-4 w-4 inline-block mr-2 text-[#4FB6B2]" />
-                        {stickerCameraOpen ? 'Stop' : 'Camera'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => (dictatingDetails ? stopDictateDetails() : void startDictateDetails())}
-                        className={`min-h-[44px] rounded-[10px] px-3 text-sm font-bold text-white ${
-                          dictatingDetails ? 'bg-rose-500 hover:bg-rose-600' : 'bg-[#4FB6B2] hover:bg-[#3FA6A2]'
-                        }`}
-                        title="Dictate patient details (name, DOB, sex, etc.)"
-                      >
-                        <Mic className="h-4 w-4 inline-block mr-2" />
-                        {dictatingDetails ? 'Stop' : 'Dictate'}
-                      </button>
-                    </div>
+              <div className="space-y-5">
+                <div className="rounded-[14px] border border-[#DDE8E2] bg-white/90 p-4 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
+                  <input
+                    ref={stickerGalleryInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = '';
+                      if (f) void applyStickerFromFile(f);
+                    }}
+                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      disabled={stickerBusy}
+                      onClick={() => {
+                        setStickerError(null);
+                        stickerGalleryInputRef.current?.click();
+                      }}
+                      className="min-h-[48px] rounded-[12px] bg-[#6FA08C] hover:bg-[#5F8F7C] text-white text-sm font-bold shadow-[0_1px_2px_rgba(0,0,0,0.06)] disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      <Upload className="h-4 w-4" />
+                      Gallery
+                    </button>
+                    <button
+                      type="button"
+                      disabled={stickerBusy}
+                      onClick={() => {
+                        setStickerError(null);
+                        setStickerCameraOpen(true);
+                      }}
+                      className="min-h-[48px] rounded-[12px] border border-[#DDE8E2] bg-white text-[#1F2937] text-sm font-bold hover:bg-[#F4F7F5] disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      <Camera className="h-4 w-4 text-[#6FA08C]" />
+                      Live camera
+                    </button>
+                  </div>
+                  <div className="mt-3 flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => (dictatingDetails ? stopDictateDetails() : void startDictateDetails())}
+                      className={`text-xs font-bold tracking-wide uppercase ${
+                        dictatingDetails ? 'text-rose-600' : 'text-[#6B7280] hover:text-[#1F2937]'
+                      }`}
+                    >
+                      <Mic className="h-3.5 w-3.5 inline-block mr-1 align-[-2px]" />
+                      {dictatingDetails ? 'Stop dictation' : 'Or dictate details'}
+                    </button>
                   </div>
                   {stickerError ? (
-                    <p className="mt-2 rounded-[10px] border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-800">
+                    <p className="mt-3 rounded-[10px] border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-800">
                       {stickerError}
                     </p>
                   ) : null}
                   {stickerBusy ? (
-                    <p className="mt-2 text-[11px] text-[#6B7280] font-medium">Reading sticker text…</p>
+                    <p className="mt-2 text-[11px] text-[#6B7280] font-medium">Reading photo…</p>
                   ) : null}
                   <StickerCameraModal
                     isOpen={stickerCameraOpen}
@@ -587,65 +606,199 @@ export const App = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-[#6B7280] mb-1.5">Full Name</label>
-                  <input type="text" placeholder="e.g. Sarah Connor" value={newPatientName} onChange={(e) => setNewPatientName(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-[10px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition" />
-                </div>
-                <div className="flex gap-4">
-                  <div className="flex-1 min-w-0">
-                    <label className="block text-sm font-semibold text-[#6B7280] mb-1.5 flex items-center gap-1"><Calendar size={14} /> Date of Birth <span className="text-rose-500">*</span></label>
-                    <input type="date" value={newPatientDob} onChange={(e) => setNewPatientDob(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-[10px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition" />
-                    <p className="text-xs text-[#9CA3AF] mt-1">Required — pick a date or creation will fail.</p>
+                  <label className="block text-sm font-semibold text-[#4B5563] mb-1.5">Full Name</label>
+                  <div className="relative">
+                    <input
+                      autoFocus
+                      type="text"
+                      placeholder="e.g. Sarah Connor"
+                      value={newPatientName}
+                      onChange={(e) => setNewPatientName(e.target.value)}
+                      className="w-full min-h-[48px] pl-4 pr-11 py-3 rounded-[12px] border border-[#C9D9D0] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                    />
+                    <User className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-[#9CA3AF]" />
                   </div>
-                  <div className="w-1/3">
-                    <label className="block text-sm font-semibold text-[#6B7280] mb-1.5 flex items-center gap-1"><Users size={14} /> Sex</label>
-                    <div className="flex bg-[#F1F5F9] p-1 rounded-[10px]">
-                      <button type="button" onClick={() => setNewPatientSex('M')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${newPatientSex === 'M' ? 'bg-white text-[#4FB6B2] shadow-[0_1px_2px_rgba(0,0,0,0.05)]' : 'text-[#9CA3AF] hover:text-[#6B7280]'}`}>M</button>
-                      <button type="button" onClick={() => setNewPatientSex('F')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${newPatientSex === 'F' ? 'bg-white text-[#4FB6B2] shadow-[0_1px_2px_rgba(0,0,0,0.05)]' : 'text-[#9CA3AF] hover:text-[#6B7280]'}`}>F</button>
+                </div>
+                <div className="flex flex-col gap-4 sm:flex-row sm:gap-4">
+                  <div className="flex-1 min-w-0">
+                    <label className="block text-sm font-semibold text-[#4B5563] mb-1.5 flex items-center gap-1">
+                      <Calendar size={14} className="text-[#6FA08C]" /> Date of Birth <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={newPatientDob}
+                      onChange={(e) => setNewPatientDob(e.target.value)}
+                      className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                    />
+                  </div>
+                  <div className="sm:w-[38%]">
+                    <label className="block text-sm font-semibold text-[#4B5563] mb-1.5 flex items-center gap-1">
+                      <Users size={14} className="text-[#6FA08C]" /> Sex
+                    </label>
+                    <div className="flex bg-[#EEF4F1] p-1 rounded-[12px] border border-[#DDE8E2]">
+                      <button
+                        type="button"
+                        onClick={() => setNewPatientSex('M')}
+                        className={`flex-1 min-h-[40px] rounded-[10px] text-sm font-bold transition-all ${
+                          newPatientSex === 'M'
+                            ? 'bg-[#D8E8DF] text-[#2F4A3C] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]'
+                            : 'text-[#6B7280] hover:text-[#374151]'
+                        }`}
+                      >
+                        M
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewPatientSex('F')}
+                        className={`flex-1 min-h-[40px] rounded-[10px] text-sm font-bold transition-all ${
+                          newPatientSex === 'F'
+                            ? 'bg-[#D8E8DF] text-[#2F4A3C] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]'
+                            : 'text-[#6B7280] hover:text-[#374151]'
+                        }`}
+                      >
+                        F
+                      </button>
                     </div>
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-[#6B7280] mb-1.5">Folder number</label>
-                  <input type="text" placeholder="e.g. MRN, filing reference" value={newPatientFolderNumber} onChange={(e) => setNewPatientFolderNumber(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-[10px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition" />
+                  <label className="block text-sm font-semibold text-[#4B5563] mb-1.5">Cellphone number</label>
+                  <input
+                    type="tel"
+                    placeholder="e.g. 082 123 4567"
+                    value={newPatientContact}
+                    onChange={(e) => setNewPatientContact(e.target.value)}
+                    className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                  />
+                </div>
+
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#374151] mb-3">Hospital ID &amp; Billing</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-[#4B5563] mb-1.5">ID / hospital number</label>
+                      <input
+                        type="text"
+                        value={newPatientIdNumber}
+                        onChange={(e) => setNewPatientIdNumber(e.target.value)}
+                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-[#4B5563] mb-1.5">Folder / file number</label>
+                      <input
+                        type="text"
+                        value={newPatientFolderNumber}
+                        onChange={(e) => setNewPatientFolderNumber(e.target.value)}
+                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-[#4B5563] mb-1.5">Ward</label>
+                      <input
+                        type="text"
+                        value={newPatientWard}
+                        onChange={(e) => setNewPatientWard(e.target.value)}
+                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-[#4B5563] mb-1.5">Medical aid / insurer</label>
+                      <input
+                        type="text"
+                        value={newPatientMedicalAidName}
+                        onChange={(e) => setNewPatientMedicalAidName(e.target.value)}
+                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-[#4B5563] mb-1.5">Plan / package</label>
+                      <input
+                        type="text"
+                        value={newPatientMedicalAidPackage}
+                        onChange={(e) => setNewPatientMedicalAidPackage(e.target.value)}
+                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-[#4B5563] mb-1.5">Member number</label>
+                      <input
+                        type="text"
+                        value={newPatientMedicalAidMemberNumber}
+                        onChange={(e) => setNewPatientMedicalAidMemberNumber(e.target.value)}
+                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-[#4B5563] mb-1.5">Scheme phone (authorisation)</label>
+                  <input
+                    type="tel"
+                    value={newPatientMedicalAidPhone}
+                    onChange={(e) => setNewPatientMedicalAidPhone(e.target.value)}
+                    className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-[#6B7280] mb-1.5">Cellphone number</label>
-                  <input type="tel" placeholder="e.g. 082 123 4567" value={newPatientContact} onChange={(e) => setNewPatientContact(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-[10px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition" />
+                  <label className="block text-sm font-semibold text-[#4B5563] mb-1.5">Other notes from sticker</label>
+                  <textarea
+                    rows={4}
+                    value={newPatientStickerNotes}
+                    onChange={(e) => setNewPatientStickerNotes(e.target.value)}
+                    className="w-full resize-y min-h-[120px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-[#4B5563] mb-1.5">Referring doctor</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Dr A. Nkomo"
+                    value={newPatientReferringDoctor}
+                    onChange={(e) => setNewPatientReferringDoctor(e.target.value)}
+                    className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-[#6B7280] mb-1.5">Referring doctor</label>
-                  <input type="text" placeholder="e.g. Dr A. Nkomo" value={newPatientReferringDoctor} onChange={(e) => setNewPatientReferringDoctor(e.target.value)} className="w-full min-h-[44px] px-4 py-3 rounded-[10px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition" />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-[#6B7280] mb-1.5">Patient visit</label>
-                  <div className="flex bg-[#F1F5F9] p-1 rounded-[10px] gap-1">
+                  <label className="block text-sm font-semibold text-[#4B5563] mb-1.5">Patient visit</label>
+                  <div className="flex bg-[#EEF4F1] p-1 rounded-[12px] gap-1 border border-[#DDE8E2]">
                     <button
                       type="button"
                       onClick={() => setNewPatientVisitType('new')}
-                      className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${newPatientVisitType === 'new' ? 'bg-white text-[#4FB6B2] shadow-[0_1px_2px_rgba(0,0,0,0.05)]' : 'text-[#9CA3AF] hover:text-[#6B7280]'}`}
+                      className={`flex-1 py-2.5 rounded-[10px] text-sm font-bold transition-all ${
+                        newPatientVisitType === 'new'
+                          ? 'bg-[#D8E8DF] text-[#2F4A3C] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]'
+                          : 'text-[#6B7280] hover:text-[#374151]'
+                      }`}
                     >
                       New patient
                     </button>
                     <button
                       type="button"
                       onClick={() => setNewPatientVisitType('follow_up')}
-                      className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${newPatientVisitType === 'follow_up' ? 'bg-white text-[#4FB6B2] shadow-[0_1px_2px_rgba(0,0,0,0.05)]' : 'text-[#9CA3AF] hover:text-[#6B7280]'}`}
+                      className={`flex-1 py-2.5 rounded-[10px] text-sm font-bold transition-all ${
+                        newPatientVisitType === 'follow_up'
+                          ? 'bg-[#D8E8DF] text-[#2F4A3C] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]'
+                          : 'text-[#6B7280] hover:text-[#374151]'
+                      }`}
                     >
                       Follow-up
                     </button>
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-[#6B7280] mb-1.5 flex items-center gap-1">
-                    <Calendar size={14} /> Visit date <span className="text-rose-500">*</span>
+                  <label className="block text-sm font-semibold text-[#4B5563] mb-1.5 flex items-center gap-1">
+                    <Calendar size={14} className="text-[#6FA08C]" /> Visit date <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="date"
                     value={newPatientVisitDate}
                     onChange={(e) => setNewPatientVisitDate(e.target.value)}
-                    className="w-full min-h-[44px] px-4 py-3 rounded-[10px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
+                    className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#DDE8E2] bg-white text-base text-[#1F2937] focus:border-[#6FA08C] focus:ring-2 focus:ring-[#E3EFE8] outline-none transition"
                   />
-                  <p className="text-xs text-[#9CA3AF] mt-1">Encounter or registration date (defaults to today).</p>
+                  <p className="text-xs text-[#6B7280] mt-1">Defaults to today.</p>
                 </div>
                 <div className="pt-2 flex gap-3">
                   <button
@@ -654,11 +807,15 @@ export const App = () => {
                       setStickerCameraOpen(false);
                       setShowCreateModal(false);
                     }}
-                    className="flex-1 px-4 py-3 rounded-[10px] font-medium text-[#1F2937] bg-white border border-[#E5E7EB] hover:bg-[#F1F5F9] transition"
+                    className="flex-1 px-4 py-3 rounded-[12px] font-semibold text-[#1F2937] bg-white border border-[#DDE8E2] hover:bg-[#F4F7F5] transition"
                   >
                     Cancel
                   </button>
-                  <button type="submit" disabled={!newPatientName.trim() || !newPatientDob || !newPatientVisitDate || loading} className="flex-1 bg-[#4FB6B2] hover:bg-[#3FA6A2] text-white px-4 py-3 rounded-[10px] font-bold shadow-[0_1px_2px_rgba(0,0,0,0.05)] disabled:opacity-50 transition flex items-center justify-center gap-2">
+                  <button
+                    type="submit"
+                    disabled={!newPatientName.trim() || !newPatientDob || !newPatientVisitDate || loading}
+                    className="flex-1 bg-[#6FA08C] hover:bg-[#5F8F7C] text-white px-4 py-3 rounded-[12px] font-bold shadow-[0_1px_2px_rgba(0,0,0,0.06)] disabled:opacity-50 transition flex items-center justify-center gap-2"
+                  >
                     {loading ? <Loader className="animate-spin" size={18}/> : 'Create Folder'}
                   </button>
                 </div>

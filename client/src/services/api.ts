@@ -396,9 +396,17 @@ export const transcribeAudio = async (audioBase64: string, mimeType: string): Pr
 export type ExtractedPatientSticker = {
   firstName: string | null;
   lastName: string | null;
+  sex: 'M' | 'F' | null;
   dob: string | null; // YYYY-MM-DD
   cellphoneNumber: string | null;
+  idNumber: string | null;
   hospitalFolderNumber: string | null;
+  ward: string | null;
+  medicalAidName: string | null;
+  medicalAidPackage: string | null;
+  medicalAidMemberNumber: string | null;
+  medicalAidPhone: string | null;
+  rawNotes: string | null;
 };
 
 /** Gemini vision: sticker photo → demographics JSON. */

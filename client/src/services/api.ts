@@ -362,6 +362,21 @@ export const analyzeAndRenameImage = async (base64Image: string): Promise<string
   return data.filename;
 };
 
+export type ParsedPatientDictation = {
+  firstName: string | null;
+  lastName: string | null;
+  dob: string | null; // YYYY-MM-DD (estimated if needed)
+  sex: 'M' | 'F' | null;
+  cellphoneNumber: string | null;
+  clinicalNarrative: string; // may be empty
+};
+
+export const parsePatientDictation = async (rawText: string): Promise<ParsedPatientDictation> =>
+  requestWithTransientRetry<ParsedPatientDictation>('/api/ai/parse-patient-dictation', {
+    method: 'POST',
+    body: JSON.stringify({ rawText }),
+  });
+
 export const extractEchoReportText = async (params: {
   base64Data: string;
   mimeType?: string;

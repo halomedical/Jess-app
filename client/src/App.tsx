@@ -13,7 +13,9 @@ import { EcgRhythmStrip } from './components/EcgRhythmStrip';
 import { parsePatientSticker } from './utils/patientSticker';
 import { transcribeAudio } from './services/api';
 import { extractPatientFromStickerFile, type ExtractedPatientSticker } from './services/api';
+import { parsePatientDictation, saveWorkspaceDraft } from './services/api';
 import { StickerCameraModal } from './features/stickerScan2/StickerCameraModal';
+import { DEFAULT_HALO_TEMPLATE_ID } from '../../shared/haloTemplates';
 
 export const App = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -45,9 +47,11 @@ export const App = () => {
   const [stickerError, setStickerError] = useState<string | null>(null);
   const [stickerCameraOpen, setStickerCameraOpen] = useState(false);
   const [stickerBusy, setStickerBusy] = useState(false);
-  const [dictatingDetails, setDictatingDetails] = useState(false);
+  const [dictationPhase, setDictationPhase] = useState<'idle' | 'recording' | 'processing'>('idle');
+  const [newPatientClinicalNarrative, setNewPatientClinicalNarrative] = useState('');
   const detailsRecorderRef = React.useRef<MediaRecorder | null>(null);
   const detailsChunksRef = React.useRef<Blob[]>([]);
+  const detailsStreamRef = React.useRef<MediaStream | null>(null);
   const stickerGalleryInputRef = useRef<HTMLInputElement | null>(null);
 
   const localIsoDate = () => {
@@ -215,6 +219,8 @@ export const App = () => {
     setStickerError(null);
     setStickerCameraOpen(false);
     setStickerBusy(false);
+    setNewPatientClinicalNarrative('');
+    setDictationPhase('idle');
   }, []);
 
   const applyExtractedSticker = useCallback((ex: ExtractedPatientSticker) => {
@@ -255,20 +261,23 @@ export const App = () => {
 
   const startDictateDetails = useCallback(async () => {
     setStickerError(null);
-    setDictatingDetails(true);
+    setDictationPhase('processing');
     detailsChunksRef.current = [];
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      detailsStreamRef.current = stream;
       const mimeType =
         typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
           ? 'audio/webm;codecs=opus'
           : 'audio/webm';
       const mr = new MediaRecorder(stream, { mimeType });
       detailsRecorderRef.current = mr;
+      setDictationPhase('recording');
       mr.ondataavailable = (e) => {
         if (e.data.size > 0) detailsChunksRef.current.push(e.data);
       };
       mr.onstop = async () => {
+        setDictationPhase('processing');
         try {
           const blob = new Blob(detailsChunksRef.current, { type: mimeType });
           const base64 = await new Promise<string>((resolve, reject) => {
@@ -286,17 +295,21 @@ export const App = () => {
             setStickerError('No speech detected for patient details.');
             return;
           }
-          applyStickerParsed(transcript);
-          setNewPatientStickerNotes((prev) => {
-            const t = transcript.trim();
-            if (!t) return prev;
-            return prev.trim() ? `${prev.trim()}\n\n${t}` : t;
-          });
+          const extracted = await parsePatientDictation(transcript);
+          const first = (extracted.firstName ?? '').trim();
+          const last = (extracted.lastName ?? '').trim();
+          const fullName = `${first} ${last}`.trim();
+          if (fullName) setNewPatientName(fullName);
+          if (extracted.dob && /^\d{4}-\d{2}-\d{2}$/.test(extracted.dob)) setNewPatientDob(extracted.dob);
+          if (extracted.sex === 'M' || extracted.sex === 'F') setNewPatientSex(extracted.sex);
+          if (extracted.cellphoneNumber?.trim()) setNewPatientContact(extracted.cellphoneNumber.trim());
+          if (extracted.clinicalNarrative?.trim()) setNewPatientClinicalNarrative(extracted.clinicalNarrative.trim());
         } catch (err) {
           setStickerError(getErrorMessage(err));
         } finally {
-          stream.getTracks().forEach((t) => t.stop());
-          setDictatingDetails(false);
+          detailsStreamRef.current?.getTracks().forEach((t) => t.stop());
+          detailsStreamRef.current = null;
+          setDictationPhase('idle');
           detailsRecorderRef.current = null;
           detailsChunksRef.current = [];
         }
@@ -304,15 +317,24 @@ export const App = () => {
       mr.start(250);
     } catch (err) {
       setStickerError(getErrorMessage(err));
-      setDictatingDetails(false);
+      detailsStreamRef.current?.getTracks().forEach((t) => t.stop());
+      detailsStreamRef.current = null;
+      setDictationPhase('idle');
     }
-  }, [applyStickerParsed, getErrorMessage]);
+  }, [getErrorMessage]);
 
   const stopDictateDetails = useCallback(() => {
     const mr = detailsRecorderRef.current;
     if (!mr) return;
     try {
+      setDictationPhase('processing');
       mr.stop();
+    } catch {
+      /* ignore */
+    }
+    try {
+      // Release mic immediately; onstop handler is still responsible for final cleanup.
+      detailsStreamRef.current?.getTracks().forEach((t) => t.stop());
     } catch {
       /* ignore */
     }
@@ -340,6 +362,28 @@ export const App = () => {
         visitDate: newPatientVisitDate,
       });
       if (newP) {
+        const narrative = (newPatientClinicalNarrative ?? '').trim();
+        if (narrative) {
+          try {
+            await saveWorkspaceDraft(newP.id, {
+              savedAt: Date.now(),
+              draft: {
+                pendingTranscript: narrative,
+                notes: [],
+                activeNoteIndex: 0,
+                selectedTemplatesForGenerate: [DEFAULT_HALO_TEMPLATE_ID],
+                templateId: DEFAULT_HALO_TEMPLATE_ID,
+              },
+            });
+          } catch {
+            // best-effort; workspace will still open
+          }
+          try {
+            sessionStorage.setItem(`halo_patientWorkspaceTab_v1:${newP.id}`, 'notes');
+          } catch {
+            /* ignore */
+          }
+        }
         await refreshPatients();
         selectPatient(newP.id);
         setShowCreateModal(false);
@@ -578,16 +622,25 @@ export const App = () => {
                       Live camera
                     </button>
                   </div>
-                  <div className="mt-3 flex justify-center">
+                  <div className="mt-3">
                     <button
                       type="button"
-                      onClick={() => (dictatingDetails ? stopDictateDetails() : void startDictateDetails())}
-                      className={`text-xs font-bold tracking-wide uppercase ${
-                        dictatingDetails ? 'text-rose-600' : 'text-[#6B7280] hover:text-[#1F2937]'
+                      disabled={dictationPhase === 'processing'}
+                      onClick={() => (dictationPhase === 'recording' ? stopDictateDetails() : void startDictateDetails())}
+                      className={`w-full min-h-[48px] rounded-[12px] px-4 text-sm font-bold transition flex items-center justify-center gap-2 ${
+                        dictationPhase === 'recording'
+                          ? 'bg-rose-500 hover:bg-rose-600 text-white halo-recording-pulse'
+                          : dictationPhase === 'processing'
+                            ? 'bg-[#E5E7EB] text-[#6B7280] cursor-not-allowed'
+                            : 'bg-[#4FB6B2] hover:bg-[#3FA6A2] text-white'
                       }`}
                     >
-                      <Mic className="h-3.5 w-3.5 inline-block mr-1 align-[-2px]" />
-                      {dictatingDetails ? 'Stop dictation' : 'Or dictate details'}
+                      <Mic className="h-4 w-4" />
+                      {dictationPhase === 'recording'
+                        ? 'Stop Dictation'
+                        : dictationPhase === 'processing'
+                          ? 'Processing…'
+                          : 'Start Dictation'}
                     </button>
                   </div>
                   {stickerError ? (

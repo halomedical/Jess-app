@@ -182,6 +182,74 @@ router.post('/parse-patient-sticker', async (req: Request, res: Response) => {
   }
 });
 
+// POST /parse-patient-dictation — raw dictation transcript → demographics + clinical narrative
+router.post('/parse-patient-dictation', async (req: Request, res: Response) => {
+  try {
+    const { rawText } = req.body as { rawText?: string };
+    if (!rawText || typeof rawText !== 'string' || rawText.trim().length < 6) {
+      res.status(400).json({ error: 'rawText is required.' });
+      return;
+    }
+
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const prompt =
+      `You are a medical data extractor.\n` +
+      `Read the following raw clinician dictation.\n\n` +
+      `Return ONLY valid JSON (no markdown) with these exact keys:\n` +
+      `firstName, lastName, dob, sex, cellphoneNumber, clinicalNarrative\n\n` +
+      `Rules:\n` +
+      `- firstName: given name(s) only.\n` +
+      `- lastName: surname/family name only.\n` +
+      `- sex: "M" or "F" when present; otherwise null.\n` +
+      `- dob: YYYY-MM-DD. If exact date isn't given but an age is given, estimate dob using today's date (${todayIso}) and set it to Jan 1 of the calculated birth year unless the month/day is explicitly dictated.\n` +
+      `- cellphoneNumber: patient phone/cell number if present, otherwise null.\n` +
+      `- clinicalNarrative: all remaining clinical history/symptoms/investigations/assessment/plan (exclude demographics); return an empty string if none.\n` +
+      `- If a demographic field is missing, return null for that key.\n\n` +
+      `DICTATION:\n${rawText.trim()}\n`;
+
+    const text = await generateText(prompt);
+    const parsed = safeJsonParse<{
+      firstName: string | null;
+      lastName: string | null;
+      dob: string | null;
+      sex: 'M' | 'F' | null;
+      cellphoneNumber: string | null;
+      clinicalNarrative: string;
+    }>(text, {
+      firstName: null,
+      lastName: null,
+      dob: null,
+      sex: null,
+      cellphoneNumber: null,
+      clinicalNarrative: '',
+    });
+
+    const strOrNull = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    const dobRaw = strOrNull(parsed.dob);
+    const dob = dobRaw && /^\d{4}-\d{2}-\d{2}$/.test(dobRaw) ? dobRaw : null;
+    const sexRaw = strOrNull(parsed.sex)?.toUpperCase() ?? null;
+    const sex =
+      sexRaw === 'M' || sexRaw === 'MALE'
+        ? ('M' as const)
+        : sexRaw === 'F' || sexRaw === 'FEMALE'
+          ? ('F' as const)
+          : null;
+    const narrative = typeof parsed.clinicalNarrative === 'string' ? parsed.clinicalNarrative.trim() : '';
+
+    res.json({
+      firstName: strOrNull(parsed.firstName),
+      lastName: strOrNull(parsed.lastName),
+      dob,
+      sex,
+      cellphoneNumber: strOrNull(parsed.cellphoneNumber),
+      clinicalNarrative: narrative,
+    });
+  } catch (err) {
+    console.error('Parse patient dictation error:', err);
+    res.status(500).json({ error: 'Could not parse dictation text.' });
+  }
+});
+
 // POST /extract-patient-sticker — Gemini vision: sticker photo → demographics JSON
 router.post('/extract-patient-sticker', async (req: Request, res: Response) => {
   try {

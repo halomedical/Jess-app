@@ -11,6 +11,25 @@ body {
   overflow-x: hidden;
 }
 
+@keyframes halo-recording-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.35);
+  }
+  70% {
+    transform: scale(1.02);
+    box-shadow: 0 0 0 10px rgba(244, 63, 94, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(244, 63, 94, 0);
+  }
+}
+
+.halo-recording-pulse {
+  animation: halo-recording-pulse 1.25s ease-in-out infinite;
+}
+
 /* Matches sign-in wordmark: serif for titles / brand lines */
 .font-display {
   font-family: Georgia, 'Times New Roman', Times, serif;

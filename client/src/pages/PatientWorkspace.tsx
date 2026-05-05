@@ -1242,6 +1242,11 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
 
   const runWorkspaceNoteGeneration = useCallback(
     async (opts?: { source?: 'auto' | 'manual' }) => {
+      // Snapshot the patient at the moment generation starts.
+      // This prevents cross-patient "state bleed" if the user navigates while a generation is in flight.
+      const generationPatient = { ...patientRef.current };
+      const generationPatientId = generationPatient.id;
+
       const rawDictation = pendingTranscriptRef.current?.trim() ?? '';
       if (!rawDictation) {
         if (opts?.source !== 'auto') onToast('No dictation to generate from.', 'info');
@@ -1256,9 +1261,10 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       const targetNote =
         targetId ? notesRef.current.find((n) => n.noteId === targetId) : null;
       const templateForRun = targetNote?.template_id || WORKSPACE_TEMPLATE_ID;
-      const inputText = buildClinicalNoteInputFromDictation(patientRef.current, dictationForModel);
+      const inputText = buildClinicalNoteInputFromDictation(generationPatient, dictationForModel);
       try {
         const res = await generateNotePreview({ template_id: templateForRun, text: inputText });
+        if (patientRef.current.id !== generationPatientId) return;
         const first = res.notes?.[0];
         const content = first?.content?.trim() ? first.content : dictationForModel;
         const createdAt = new Date().toISOString();
@@ -1308,15 +1314,16 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         pendingTranscriptRef.current = null;
 
         const plainForDrive = buildNotePlainText(noteToPreview);
-        const docxText = buildNoteTextWithPatientChart(patientRef.current, plainForDrive);
+        const docxText = buildNoteTextWithPatientChart(generationPatient, plainForDrive);
         setDocxTask({ phase: 'running', message: 'Saving note to Patient Notes…' });
         try {
           await saveNoteAsDocx({
-            patientId: patientRef.current.id,
+            patientId: generationPatientId,
             template_id: noteToPreview.template_id || WORKSPACE_TEMPLATE_ID,
             text: docxText,
             fileName: sanitizeDocxFileBase(noteToPreview.title || `${label} note`) || undefined,
           });
+          if (patientRef.current.id !== generationPatientId) return;
           await loadFolderContents(currentFolderId);
           onDataChange();
           setDocxTask({ phase: 'success', message: 'DOCX saved to Patient Notes' });
@@ -1325,6 +1332,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             'success'
           );
         } catch (saveErr) {
+          if (patientRef.current.id !== generationPatientId) return;
           setDocxTask({ phase: 'error', message: getErrorMessage(saveErr) });
           onToast(
             `${label} note is in the editor, but saving the Word file to Google Drive failed: ${getErrorMessage(saveErr)}. Use Save (DOCX) to retry.`,
@@ -1339,12 +1347,15 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           suppressDebouncedPdfRefreshRef.current = false;
         }
       } catch (err) {
+        if (patientRef.current.id !== generationPatientId) return;
         const msg = getErrorMessage(err);
         setWorkspaceGenerationError(msg);
         onToast(msg, 'error');
       } finally {
         generationInFlightRef.current = false;
-        setWorkspaceNoteGenerating(false);
+        if (patientRef.current.id === generationPatientId) {
+          setWorkspaceNoteGenerating(false);
+        }
       }
     },
     [onToast, loadPreviewPdfForNote, loadFolderContents, currentFolderId, onDataChange]

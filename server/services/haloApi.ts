@@ -238,18 +238,19 @@ export async function generateNote(params: GenerateNoteParams): Promise<HaloNote
       content = await generateClinicalNoteFromTranscript(params.text, params.template_id);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      // Gemini fallback requires Generative Language API enabled on the GCP project
-      // associated with GEMINI_API_KEY. Surface an actionable message.
-      if (msg.includes('SERVICE_DISABLED') || msg.includes('403') || msg.toLowerCase().includes('generativelanguage')) {
+      console.error('[Halo] Gemini clinical fallback error:', msg);
+      // Do NOT treat every 403 / URL fragment as "API disabled" — Google often returns 403 for
+      // API key restrictions (HTTP referrer / Android app / wrong key), quota, or billing.
+      if (msg.includes('SERVICE_DISABLED')) {
         throw new Error(
-          [
-            'Gemini fallback failed because the Generative Language API is disabled.',
-            'To fix: enable the API for the Google Cloud project used by your GEMINI_API_KEY, then retry in a few minutes.',
-            'Activation link (from your error): https://console.developers.google.com/apis/api/generativelanguage.googleapis.com/overview?project=999125654566',
-          ].join(' ')
+          'Google reports SERVICE_DISABLED for Generative Language API. Enable it for the project that owns GEMINI_API_KEY: https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com — then retry.'
         );
       }
-      throw err;
+      const restrictionHint =
+        /403|PERMISSION_DENIED|API key not valid|blocked|restriction/i.test(msg)
+          ? ' If the real error mentions 403 or API key: open Google Cloud → Credentials → your API key → “Application restrictions”. Server-side calls from Heroku cannot use “HTTP referrers” or Android/iOS app restrictions; use “None” or an IP strategy suited to your host.'
+          : '';
+      throw new Error(`Gemini fallback failed: ${msg.slice(0, 1200)}${restrictionHint}`);
     }
     return normalizeNotesResponse(content, params.template_id);
   }

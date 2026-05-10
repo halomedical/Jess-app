@@ -32,7 +32,7 @@ const globalLimiter = rateLimit({
 // --- AI Route Rate Limiter (stricter) ---
 const aiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 20, // 20 AI requests per minute
+  max: 80,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'AI rate limit reached. Please wait before trying again.' },

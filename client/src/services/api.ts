@@ -1,6 +1,7 @@
 import type { Patient, DriveFile, LabAlert, ChatMessage, UserSettings, HaloNote } from '../../../shared/types';
 import type { ClinicalWorkspaceDraft, ClinicalWorkspaceDraftFile } from '../../../shared/workspaceDraft';
 import { getClientApiBase } from '../utils/apiBase';
+import { prepareStickerImageForExtraction } from '../utils/stickerImagePrep';
 
 const API_BASE = getClientApiBase();
 
@@ -435,8 +436,13 @@ export const extractPatientFromSticker = async (
   });
 
 export async function extractPatientFromStickerFile(file: File): Promise<ExtractedPatientSticker> {
-  const base64 = await fileToBase64(file);
-  return extractPatientFromSticker(base64, file.type || 'image/jpeg');
+  try {
+    const { base64, mimeType } = await prepareStickerImageForExtraction(file);
+    return extractPatientFromSticker(base64, mimeType);
+  } catch {
+    const base64 = await fileToBase64(file);
+    return extractPatientFromSticker(base64, file.type || 'image/jpeg');
+  }
 }
 
 // --- Halo API (note generation + templates) ---

@@ -246,7 +246,15 @@ router.post('/parse-patient-dictation', async (req: Request, res: Response) => {
     });
   } catch (err) {
     console.error('Parse patient dictation error:', err);
-    res.status(500).json({ error: 'Could not parse dictation text.' });
+    const detail = err instanceof Error ? err.message : String(err);
+    res.status(500).json({
+      error:
+        detail.trim().length > 0
+          ? detail.length > 700
+            ? `${detail.slice(0, 700)}…`
+            : detail
+          : 'Could not parse dictation text.',
+    });
   }
 });
 
@@ -260,7 +268,7 @@ router.post('/extract-patient-sticker', async (req: Request, res: Response) => {
       return;
     }
 
-    const cleanBase64 = base64Image.split(',')[1] || base64Image;
+    const cleanBase64 = (base64Image.split(',')[1] || base64Image).replace(/\s/g, '');
     const mime =
       mimeType && /^image\/(jpeg|png|gif|webp|bmp)$/i.test(mimeType)
         ? mimeType
@@ -312,7 +320,15 @@ router.post('/extract-patient-sticker', async (req: Request, res: Response) => {
     });
   } catch (err) {
     console.error('[ai/extract-patient-sticker] error:', err);
-    res.status(500).json({ error: 'Could not read image. Try a clearer photo.' });
+    const detail = err instanceof Error ? err.message : String(err);
+    res.status(500).json({
+      error:
+        detail.trim().length > 0
+          ? detail.length > 700
+            ? `${detail.slice(0, 700)}…`
+            : detail
+          : 'Could not read image. Try a clearer photo.',
+    });
   }
 });
 

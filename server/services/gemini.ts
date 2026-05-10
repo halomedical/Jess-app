@@ -34,7 +34,6 @@ function getGenAI(): GoogleGenerativeAI {
 
 /**
  * Retry wrapper for Gemini API calls with exponential backoff.
- * Retries on 429 (rate limit) and 503 (service unavailable).
  */
 export async function withRetry<T>(fn: () => Promise<T>, maxRetries = MAX_RETRIES, delay = BASE_RETRY_DELAY_MS): Promise<T> {
   let lastError: Error | undefined;
@@ -44,7 +43,16 @@ export async function withRetry<T>(fn: () => Promise<T>, maxRetries = MAX_RETRIE
     } catch (error: unknown) {
       const err = error instanceof Error ? error : new Error(String(error));
       lastError = err;
-      const isRetryable = err.message?.includes('429') || err.message?.includes('503');
+      const m = (err.message || '').toLowerCase();
+      const isRetryable =
+        m.includes('429') ||
+        m.includes('503') ||
+        m.includes('500') ||
+        m.includes('resource exhausted') ||
+        m.includes('overloaded') ||
+        m.includes('econnreset') ||
+        m.includes('fetch failed') ||
+        m.includes('too many requests');
       if (isRetryable && i < maxRetries) {
         await new Promise((r) => setTimeout(r, delay * Math.pow(2, i)));
         continue;
@@ -56,15 +64,51 @@ export async function withRetry<T>(fn: () => Promise<T>, maxRetries = MAX_RETRIE
 }
 
 /**
- * Safely parse JSON from Gemini responses, stripping markdown code fences.
+ * Safely parse JSON from Gemini responses; recover `{...}` when the model adds prose around it.
  */
 export function safeJsonParse<T>(text: string, fallback: T): T {
+  const cleaned = text.replace(/```json|```/gi, '').trim();
   try {
-    const cleaned = text.replace(/```json|```/g, '').trim();
     return JSON.parse(cleaned) as T;
   } catch {
+    try {
+      const start = cleaned.indexOf('{');
+      const end = cleaned.lastIndexOf('}');
+      if (start >= 0 && end > start) {
+        return JSON.parse(cleaned.slice(start, end + 1)) as T;
+      }
+    } catch {
+      /* use fallback */
+    }
     return fallback;
   }
+}
+
+/**
+ * `response.text()` often throws when candidates only have separate parts (SDK quirk).
+ */
+function extractTextFromGenerateContentResult(result: {
+  response: {
+    text: () => string;
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> }; finishReason?: string }>;
+  };
+}): string {
+  try {
+    const t = result.response.text();
+    if (typeof t === 'string' && t.trim()) return t.trim();
+  } catch {
+    /* fall through */
+  }
+  const parts = result.response.candidates?.[0]?.content?.parts;
+  if (Array.isArray(parts) && parts.length > 0) {
+    const joined = parts
+      .map((p) => (p && typeof p.text === 'string' ? p.text : ''))
+      .join('')
+      .trim();
+    if (joined) return joined;
+  }
+  const fr = result.response.candidates?.[0]?.finishReason ?? 'unknown';
+  throw new Error(`Gemini returned no text (finishReason=${fr})`);
 }
 
 /** Request options for Gemini calls with extended timeout for slow responses */
@@ -88,7 +132,7 @@ export async function generateText(prompt: string): Promise<string> {
       geminiRequestOptions
     )
   );
-  return result.response.text();
+  return extractTextFromGenerateContentResult(result);
 }
 
 /**
@@ -146,13 +190,25 @@ export async function* generateTextStream(prompt: string): AsyncGenerator<string
 export async function analyzeImage(prompt: string, base64Data: string, mimeType: string): Promise<string> {
   const genAI = getGenAI();
   const model = genAI.getGenerativeModel({ model: VISION_MODEL });
+  const data = base64Data.replace(/\s/g, '');
   const result = await withRetry(() =>
     model.generateContent(
-      [prompt, { inlineData: { data: base64Data, mimeType } }],
+      {
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: prompt }, { inlineData: { mimeType, data } }],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: 8192,
+        },
+      },
       geminiRequestOptions
     )
   );
-  return result.response.text();
+  return extractTextFromGenerateContentResult(result);
 }
 
 /**
@@ -161,6 +217,7 @@ export async function analyzeImage(prompt: string, base64Data: string, mimeType:
 export async function transcribeAudio(prompt: string, base64Data: string, mimeType: string): Promise<string> {
   const genAI = getGenAI();
   const model = genAI.getGenerativeModel({ model: TEXT_MODEL });
+  const data = base64Data.replace(/\s/g, '');
   const result = await withRetry(() =>
     model.generateContent(
       {
@@ -169,7 +226,7 @@ export async function transcribeAudio(prompt: string, base64Data: string, mimeTy
             role: 'user',
             parts: [
               { text: prompt },
-              { inlineData: { mimeType, data: base64Data } },
+              { inlineData: { mimeType, data } },
             ],
           },
         ],
@@ -182,5 +239,5 @@ export async function transcribeAudio(prompt: string, base64Data: string, mimeTy
       geminiRequestOptions
     )
   );
-  return result.response.text();
+  return extractTextFromGenerateContentResult(result);
 }

@@ -76,10 +76,21 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
         'Content-Type': 'application/json',
         ...(options.headers || {}),
       },
+      ...(options.signal ? { signal: options.signal } : {}),
     });
   } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    if (err.name === 'AbortError' || /aborted/i.test(err.message)) {
+      const notePreview = path.includes('/api/halo/generate-note');
+      throw new ApiError(
+        notePreview
+          ? 'Note generation timed out (30s). Tap Generate note to retry.'
+          : 'Request was cancelled or timed out.',
+        408
+      );
+    }
     console.error('[API] Network error:', error);
-    const detail = error instanceof Error ? error.message : 'Unknown error';
+    const detail = err.message;
     const pageIsLocal =
       typeof window !== 'undefined' &&
       (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
@@ -452,12 +463,48 @@ export const getHaloTemplates = (userId?: string) =>
     body: JSON.stringify(userId ? { user_id: userId } : {}),
   });
 
-/** Generate note preview (return_type=note). Returns normalized notes array. */
-export const generateNotePreview = (params: { template_id: string; text: string; user_id?: string }) =>
-  requestWithTransientRetry<{ notes: HaloNote[] }>('/api/halo/generate-note', {
-    method: 'POST',
-    body: JSON.stringify({ ...params, return_type: 'note' }),
-  });
+const NOTE_PREVIEW_ATTEMPT_TIMEOUT_MS = 30_000;
+
+function normalizeGenerateNotePreviewBody(data: unknown): { notes: HaloNote[] } {
+  if (Array.isArray(data)) return { notes: data as HaloNote[] };
+  if (data && typeof data === 'object') {
+    const o = data as Record<string, unknown>;
+    if (Array.isArray(o.notes)) return { notes: o.notes as HaloNote[] };
+  }
+  return { notes: [] };
+}
+
+/** Generate note preview (return_type=note). Per-attempt 30s abort + extra retries for Heroku cold 502/503. */
+export async function generateNotePreview(params: {
+  template_id: string;
+  text: string;
+  user_id?: string;
+}): Promise<{ notes: HaloNote[] }> {
+  const maxAttempts = 7;
+  const baseDelayMs = 600;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const controller = new AbortController();
+    const tid = window.setTimeout(() => controller.abort(), NOTE_PREVIEW_ATTEMPT_TIMEOUT_MS);
+    try {
+      const raw = await request<unknown>('/api/halo/generate-note', {
+        method: 'POST',
+        body: JSON.stringify({ ...params, return_type: 'note' }),
+        signal: controller.signal,
+      });
+      clearTimeout(tid);
+      return normalizeGenerateNotePreviewBody(raw);
+    } catch (e) {
+      clearTimeout(tid);
+      lastError = e;
+      if (e instanceof ApiError && e.status === 408) throw e;
+      if (attempt >= maxAttempts || !isTransientApiFailure(e)) throw e;
+      const jitter = Math.floor(Math.random() * 200);
+      await delay(baseDelayMs * attempt + jitter);
+    }
+  }
+  throw lastError;
+}
 
 /** Build inline PDF preview from the same full text used for DOCX (chart + note). */
 export async function fetchNotePreviewPdf(text: string, signal?: AbortSignal): Promise<Blob> {

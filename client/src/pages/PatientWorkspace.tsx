@@ -1035,6 +1035,19 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     }
   }, [patient.id, patient.name, onToast]);
 
+  /** Isolate workspace editor per patient — must run before draft/transcription hydrate below. */
+  useEffect(() => {
+    setPendingTranscript(null);
+    pendingTranscriptRef.current = null;
+    setNotes([]);
+    setActiveNoteIndex(0);
+    generationInFlightRef.current = false;
+    setWorkspaceNoteGenerating(false);
+    setWorkspaceGenerationError(null);
+    generationTargetNoteIdRef.current = null;
+    setDocxTask({ phase: 'idle' });
+  }, [patient.id]);
+
   useEffect(() => {
     const pid = patient.id;
     const memoryDraft = patientEditorDraftsRef.current[pid];
@@ -1092,7 +1105,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     (async () => {
       try {
         const remote = await fetchWorkspaceDraft(pid);
-        if (cancelled) return;
+        if (cancelled || patientRef.current.id !== pid) return;
         if (!remote || remote.draft === null) {
           setDriveSyncReady(true);
           return;
@@ -1104,11 +1117,13 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           setDriveSyncReady(true);
           return;
         }
+        if (patientRef.current.id !== pid) return;
         const freshLocal = pickStoredDraft(userEmail, pid);
         if (!shouldApplyRemoteWorkspace(freshLocal, parsed)) {
           setDriveSyncReady(true);
           return;
         }
+        if (patientRef.current.id !== pid) return;
         const p = parsed.draft.pendingTranscript ?? null;
         setPendingTranscript(p);
         pendingTranscriptRef.current = p;
@@ -1353,9 +1368,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         onToast(msg, 'error');
       } finally {
         generationInFlightRef.current = false;
-        if (patientRef.current.id === generationPatientId) {
-          setWorkspaceNoteGenerating(false);
-        }
+        setWorkspaceNoteGenerating(false);
       }
     },
     [onToast, loadPreviewPdfForNote, loadFolderContents, currentFolderId, onDataChange]
@@ -1962,7 +1975,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                       type="button"
                       onClick={() => void handleGenerateFromTemplates()}
                       disabled={workspaceNoteGenerating}
-                      className="rounded-[10px] bg-[#4FB6B2] px-2.5 py-1 text-[10px] font-bold text-white hover:bg-[#3FA6A2] disabled:opacity-50 md:rounded-lg md:px-3 md:py-1.5 md:text-xs md:bg-[#4FB6B2] md:shadow-sm md:hover:bg-[#3FA6A2]"
+                      className="rounded-[10px] bg-[#4FB6B2] px-3 py-1.5 text-[10px] font-bold text-white hover:bg-[#3FA6A2] disabled:opacity-50 md:rounded-lg md:px-3.5 md:py-2 md:text-xs md:bg-[#4FB6B2] md:shadow-sm md:hover:bg-[#3FA6A2]"
                     >
                       {workspaceNoteGenerating ? 'Generating…' : 'Generate note'}
                     </button>

@@ -1,4 +1,5 @@
 import type { Patient, DriveFile, LabAlert, ChatMessage, UserSettings, HaloNote } from '../../../shared/types';
+import { stripDuplicateLeadingPatientDemographics } from '../../../shared/clinicalNoteSanitize';
 import type { ClinicalWorkspaceDraft, ClinicalWorkspaceDraftFile } from '../../../shared/workspaceDraft';
 import { getClientApiBase } from '../utils/apiBase';
 import { prepareStickerImageForExtraction } from '../utils/stickerImagePrep';
@@ -480,8 +481,8 @@ export async function generateNotePreview(params: {
   text: string;
   user_id?: string;
 }): Promise<{ notes: HaloNote[] }> {
-  const maxAttempts = 7;
-  const baseDelayMs = 600;
+  const maxAttempts = 5;
+  const baseDelayMs = 400;
   let lastError: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const controller = new AbortController();
@@ -493,7 +494,13 @@ export async function generateNotePreview(params: {
         signal: controller.signal,
       });
       clearTimeout(tid);
-      return normalizeGenerateNotePreviewBody(raw);
+      const { notes } = normalizeGenerateNotePreviewBody(raw);
+      return {
+        notes: notes.map((n) => ({
+          ...n,
+          content: stripDuplicateLeadingPatientDemographics(n.content ?? ''),
+        })),
+      };
     } catch (e) {
       clearTimeout(tid);
       lastError = e;

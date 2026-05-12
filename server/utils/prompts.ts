@@ -104,7 +104,7 @@ Use Markdown: ## for each main section heading, **bold** for inline labels where
 Only include content supported by the dictation; use "N/A" or "Not discussed" for empty sections.
 Do not invent clinical facts.
 
-If the input contains a "Patient identifiers" block (from the chart), you MUST copy name, surname, given names, date of birth, age, sex, folder/file number, and contact number from that block into any template fields or headings that ask for patient demographics. Do not leave those fields blank when identifiers are provided.
+If the input contains a "Patient identifiers" block (from the chart), use it only as reference data for names, dates, and visit details inside the clinical sections. Do not output two separate patient demographic headers before the first ## section: include at most one concise patient identification block at the top (or none if the section structure below already embeds demographics), and never repeat the same demographics in a second block with different labels.
 
 Template key (for context): ${templateId}
 

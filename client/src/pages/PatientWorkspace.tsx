@@ -221,6 +221,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const pdfFetchGenRef = useRef(0);
   const notesRef = useRef<HaloNote[]>([]);
   const generationInFlightRef = useRef(false);
+  /** When a generation is already running, additional Generate / auto-gen requests are queued (FIFO). */
+  const pendingWorkspaceGenQueueRef = useRef<Array<{ source?: 'auto' | 'manual'; dictationSnapshot: string }>>([]);
   const runWorkspaceNoteGenerationRef = useRef<((opts?: { source?: 'auto' | 'manual' }) => Promise<void>) | null>(null);
   /** Rooms Consult generation only — do not conflate with folder/file LOADING. */
   const [workspaceNoteGenerating, setWorkspaceNoteGenerating] = useState(false);
@@ -1042,6 +1044,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     setNotes([]);
     setActiveNoteIndex(0);
     generationInFlightRef.current = false;
+    pendingWorkspaceGenQueueRef.current = [];
     setWorkspaceNoteGenerating(false);
     setWorkspaceGenerationError(null);
     generationTargetNoteIdRef.current = null;
@@ -1085,7 +1088,15 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       queueMicrotask(() => {
         if (patientRef.current.id !== pid) return;
         if (pendingTranscriptRef.current?.trim() !== mergedSnapshot.trim()) return;
-        if (generationInFlightRef.current) return;
+        if (generationInFlightRef.current) {
+          if (pendingWorkspaceGenQueueRef.current.length < 5) {
+            pendingWorkspaceGenQueueRef.current.push({
+              source: 'auto',
+              dictationSnapshot: mergedSnapshot.trim(),
+            });
+          }
+          return;
+        }
         const fn = runWorkspaceNoteGenerationRef.current;
         if (fn) void fn({ source: 'auto' });
       });
@@ -1256,18 +1267,30 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   );
 
   const runWorkspaceNoteGeneration = useCallback(
-    async (opts?: { source?: 'auto' | 'manual' }) => {
+    async (opts?: { source?: 'auto' | 'manual'; dictationSnapshot?: string }) => {
       // Snapshot the patient at the moment generation starts.
       // This prevents cross-patient "state bleed" if the user navigates while a generation is in flight.
       const generationPatient = { ...patientRef.current };
       const generationPatientId = generationPatient.id;
 
-      const rawDictation = pendingTranscriptRef.current?.trim() ?? '';
+      const rawDictation = (opts?.dictationSnapshot ?? pendingTranscriptRef.current?.trim() ?? '').trim();
       if (!rawDictation) {
         if (opts?.source !== 'auto') onToast('No dictation to generate from.', 'info');
         return;
       }
-      if (generationInFlightRef.current) return;
+      if (generationInFlightRef.current) {
+        if (pendingWorkspaceGenQueueRef.current.length >= 5) {
+          if (opts?.source !== 'auto') {
+            onToast('Several notes are still generating. Try again in a moment.', 'info');
+          }
+          return;
+        }
+        pendingWorkspaceGenQueueRef.current.push({
+          source: opts?.source ?? 'manual',
+          dictationSnapshot: rawDictation,
+        });
+        return;
+      }
       generationInFlightRef.current = true;
       setWorkspaceNoteGenerating(true);
       setWorkspaceGenerationError(null);
@@ -1325,8 +1348,10 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         }
 
         generationTargetNoteIdRef.current = null;
-        setPendingTranscript(null);
-        pendingTranscriptRef.current = null;
+        if (pendingWorkspaceGenQueueRef.current.length === 0) {
+          setPendingTranscript(null);
+          pendingTranscriptRef.current = null;
+        }
 
         const plainForDrive = buildNotePlainText(noteToPreview);
         const docxText = buildNoteTextWithPatientChart(generationPatient, plainForDrive);
@@ -1369,6 +1394,12 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       } finally {
         generationInFlightRef.current = false;
         setWorkspaceNoteGenerating(false);
+        const next = pendingWorkspaceGenQueueRef.current.shift();
+        if (next) {
+          queueMicrotask(() => {
+            void runWorkspaceNoteGenerationRef.current?.(next);
+          });
+        }
       }
     },
     [onToast, loadPreviewPdfForNote, loadFolderContents, currentFolderId, onDataChange]

@@ -84,7 +84,7 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
       const notePreview = path.includes('/api/halo/generate-note');
       throw new ApiError(
         notePreview
-          ? 'Note generation timed out (30s). Tap Generate note to retry.'
+          ? 'Note generation timed out. Tap Generate note to retry.'
           : 'Request was cancelled or timed out.',
         408
       );
@@ -463,7 +463,7 @@ export const getHaloTemplates = (userId?: string) =>
     body: JSON.stringify(userId ? { user_id: userId } : {}),
   });
 
-const NOTE_PREVIEW_ATTEMPT_TIMEOUT_MS = 30_000;
+const NOTE_PREVIEW_ATTEMPT_TIMEOUT_MS = 90_000;
 
 function normalizeGenerateNotePreviewBody(data: unknown): { notes: HaloNote[] } {
   if (Array.isArray(data)) return { notes: data as HaloNote[] };
@@ -474,7 +474,7 @@ function normalizeGenerateNotePreviewBody(data: unknown): { notes: HaloNote[] } 
   return { notes: [] };
 }
 
-/** Generate note preview (return_type=note). Per-attempt 30s abort + extra retries for Heroku cold 502/503. */
+/** Generate note preview (return_type=note). Per-attempt 90s abort + retries for Heroku cold 502/503. */
 export async function generateNotePreview(params: {
   template_id: string;
   text: string;
@@ -498,10 +498,24 @@ export async function generateNotePreview(params: {
       clearTimeout(tid);
       lastError = e;
       if (e instanceof ApiError && e.status === 408) throw e;
-      if (attempt >= maxAttempts || !isTransientApiFailure(e)) throw e;
+      if (attempt >= maxAttempts || !isTransientApiFailure(e)) {
+        if (e instanceof ApiError && e.status === 503) {
+          throw new ApiError(
+            'Server is waking up. Please wait a few seconds and tap Generate Note again.',
+            503
+          );
+        }
+        throw e;
+      }
       const jitter = Math.floor(Math.random() * 200);
       await delay(baseDelayMs * attempt + jitter);
     }
+  }
+  if (lastError instanceof ApiError && lastError.status === 503) {
+    throw new ApiError(
+      'Server is waking up. Please wait a few seconds and tap Generate Note again.',
+      503
+    );
   }
   throw lastError;
 }

@@ -5,6 +5,16 @@
 
 import { config } from '../config';
 import { generateClinicalNoteFromTranscript } from './gemini';
+import { buildReportDocxBuffer } from './reportDocx';
+import { buildRoomsConsultDocxBuffer } from './roomsConsultDocx';
+import { renderPracticeDocxFromTemplate } from './practiceDocxFromTemplate';
+import { hasPracticeDocxTemplateFile } from './practiceDocxTemplates';
+import {
+  ECHO_TEMPLATE_ID,
+  REPORT_TEMPLATE_ID,
+  ROOMS_CONSULT_TEMPLATE_ID,
+} from '../../shared/haloTemplates';
+import type { PatientForDocuments } from '../../shared/patientDemographics';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 
 const BASE = config.haloApiBaseUrl;
@@ -222,6 +232,46 @@ export interface GenerateNoteParams {
   template_id: string;
   text: string;
   return_type: 'note' | 'docx';
+  /** Patient chart for practice DOCX (name, folder, visit date, etc.). */
+  patientChart?: PatientForDocuments | null;
+  /** Field map from Gemini at generation — fills Templates/*.docx {{ tags }} directly. */
+  mergeFields?: Record<string, string> | null;
+}
+
+function normalizeTemplateId(templateId: string): string {
+  return (templateId ?? '').trim().toLowerCase();
+}
+
+export function isLocalPracticeDocxTemplate(templateId: string): boolean {
+  if (hasPracticeDocxTemplateFile(templateId)) return true;
+  const id = normalizeTemplateId(templateId);
+  return (
+    id === REPORT_TEMPLATE_ID || id === ROOMS_CONSULT_TEMPLATE_ID || id === ECHO_TEMPLATE_ID
+  );
+}
+
+export async function buildLocalPracticeDocx(params: GenerateNoteParams): Promise<Buffer> {
+  if (hasPracticeDocxTemplateFile(params.template_id)) {
+    const fromTemplate = await renderPracticeDocxFromTemplate(
+      params.template_id,
+      params.text,
+      params.patientChart ?? null,
+      params.mergeFields
+    );
+    if (fromTemplate) return fromTemplate;
+    throw new Error(
+      `Could not fill Word template for "${params.template_id}". Check Templates/ and placeholder names.`
+    );
+  }
+
+  const id = normalizeTemplateId(params.template_id);
+  if (id === REPORT_TEMPLATE_ID) {
+    return buildReportDocxBuffer(params.text, params.patientChart ?? null);
+  }
+  if (id === ROOMS_CONSULT_TEMPLATE_ID) {
+    return buildRoomsConsultDocxBuffer(params.text, params.patientChart ?? null);
+  }
+  return createLocalDocxFromText(params.text, `Clinical Note (${params.template_id})`);
 }
 
 /**
@@ -230,6 +280,10 @@ export interface GenerateNoteParams {
  */
 export async function generateNote(params: GenerateNoteParams): Promise<HaloNote[] | Buffer> {
   const { return_type } = params;
+
+  if (return_type === 'docx' && isLocalPracticeDocxTemplate(params.template_id)) {
+    return buildLocalPracticeDocx(params);
+  }
 
   async function noteFallback(reason: string): Promise<HaloNote[]> {
     console.warn(`[Halo] generate_note ${reason}; using Gemini clinical note fallback.`);
@@ -256,7 +310,10 @@ export async function generateNote(params: GenerateNoteParams): Promise<HaloNote
   }
 
   async function docxFallback(reason: string): Promise<Buffer> {
-    console.warn(`[Halo] generate_note docx ${reason}; using local DOCX from structured fallback text.`);
+    console.warn(`[Halo] generate_note docx ${reason}; using local DOCX builder.`);
+    if (isLocalPracticeDocxTemplate(params.template_id)) {
+      return buildLocalPracticeDocx(params);
+    }
     const title = `Clinical Note (${params.template_id})`;
     try {
       const content = await generateClinicalNoteFromTranscript(params.text, params.template_id);

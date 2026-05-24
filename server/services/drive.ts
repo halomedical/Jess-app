@@ -1,6 +1,12 @@
+import crypto from 'crypto';
 import mammoth from 'mammoth';
 import { config } from '../config';
-import { HALO_WORKSPACE_DRAFT_FILENAME } from '../../shared/workspaceDraft';
+import {
+  HALO_PREVIEW_TEMP_FOLDER_NAME,
+  HALO_WORKSPACE_DRAFT_FILENAME,
+} from '../../shared/workspaceDraft';
+import { buildDriveMultipartBody } from './driveMultipart';
+import { assertValidDriveFileId, withDriveFileAccessQuery } from './driveFileAccess';
 
 // Polyfill browser APIs needed by pdf-parse (set up at module load time)
 // These are needed because pdf-parse's dependency pdfjs-dist uses them at module load
@@ -74,6 +80,7 @@ export interface DriveResponse {
   id?: string;
   name?: string;
   mimeType?: string;
+  parents?: string[];
   webViewLink?: string;
   appProperties?: Record<string, string>;
   createdTime?: string;
@@ -98,7 +105,7 @@ export interface DriveFileRaw {
  */
 export async function driveRequest(token: string, path: string, options: RequestInit = {}): Promise<DriveResponse> {
   const res = await fetchWithTimeout(
-    `${driveApi}${path}`,
+    `${driveApi}${withDriveFileAccessQuery(path)}`,
     {
       ...options,
       headers: {
@@ -198,50 +205,80 @@ export async function uploadToDrive(
   buffer: Buffer,
   appProperties?: Record<string, string>
 ): Promise<string> {
-  const metadata: Record<string, unknown> = {
+  if (!buffer?.length) {
+    throw new Error(`[Drive] Refusing to upload empty file "${fileName}".`);
+  }
+
+  const metadata = {
     name: fileName,
     parents: [parentFolderId],
     mimeType,
+    ...(appProperties ? { appProperties } : {}),
   };
-  if (appProperties) {
-    metadata.appProperties = appProperties;
-  }
 
-  const boundary = 'halo_upload_boundary';
-  const metaPart = JSON.stringify(metadata);
+  const boundary = `halo_upload_${crypto.randomUUID()}`;
+  const multipartBody = buildDriveMultipartBody(boundary, metadata, buffer);
 
-  const multipartBody = Buffer.concat([
-    Buffer.from(
-      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metaPart}\r\n` +
-      `--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`
-    ),
-    buffer,
-    Buffer.from(`\r\n--${boundary}--`),
-  ]);
-
-  const uploadRes = await fetch(`${uploadApi}/files?uploadType=multipart`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': `multipart/related; boundary=${boundary}`,
-    },
-    body: multipartBody,
-  });
+  const uploadRes = await fetch(
+    `${uploadApi}/files?uploadType=multipart&fields=id,name,parents&supportsAllDrives=true`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': `multipart/related; boundary=${boundary}`,
+      },
+      body: multipartBody,
+    }
+  );
 
   if (!uploadRes.ok) {
     const errText = await uploadRes.text();
     throw new Error(`[Drive ${uploadRes.status}] Upload failed for "${fileName}": ${errText}`);
   }
 
-  const data = (await uploadRes.json()) as { id: string };
+  const data = (await uploadRes.json()) as { id?: string };
+  assertValidDriveFileId(data.id, 'upload response id');
   return data.id;
+}
+
+/** Hidden folder under Halo_Patients for short-lived Google Docs used only during DOCX→PDF preview. */
+export async function getOrCreateHaloPreviewTempFolder(token: string): Promise<string> {
+  const rootId = await getHaloRootFolder(token);
+  const searchQuery = encodeURIComponent(
+    `'${rootId}' in parents and name='${HALO_PREVIEW_TEMP_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`
+  );
+  const data = await driveRequest(token, `/files?q=${searchQuery}&fields=files(id)`);
+  if (data.files && data.files.length > 0) {
+    return data.files[0].id;
+  }
+
+  const createRes = await fetch(`${driveApi}/files`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: HALO_PREVIEW_TEMP_FOLDER_NAME,
+      parents: [rootId],
+      mimeType: 'application/vnd.google-apps.folder',
+      appProperties: { haloSystem: 'previewTemp' },
+    }),
+  });
+
+  if (!createRes.ok) {
+    throw new Error(`[Drive ${createRes.status}] Failed to create preview temp folder`);
+  }
+  const folder = (await createRes.json()) as { id: string };
+  return folder.id;
 }
 
 /**
  * Download a file's text content from Google Drive.
  */
 export async function downloadTextFromDrive(token: string, fileId: string): Promise<string> {
-  const res = await fetch(`${driveApi}/files/${fileId}?alt=media`, {
+  assertValidDriveFileId(fileId);
+  const res = await fetch(`${driveApi}${withDriveFileAccessQuery(`/files/${fileId}?alt=media`)}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {
@@ -316,7 +353,8 @@ export async function loadWorkspaceDraftFile(
  * Download a file as a binary buffer from Google Drive.
  */
 export async function downloadFileBuffer(token: string, fileId: string): Promise<Buffer> {
-  const res = await fetch(`${driveApi}/files/${fileId}?alt=media`, {
+  assertValidDriveFileId(fileId);
+  const res = await fetch(`${driveApi}${withDriveFileAccessQuery(`/files/${fileId}?alt=media`)}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {

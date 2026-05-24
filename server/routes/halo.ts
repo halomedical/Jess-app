@@ -4,6 +4,10 @@ import { config } from '../config';
 import { getTemplates, generateNote } from '../services/haloApi';
 import { getOrCreatePatientNotesFolder, uploadToDrive } from '../services/drive';
 import { renderClinicalTextToPdfBuffer } from '../services/notePdf';
+import { convertDocxBufferToPdfBuffer } from '../services/docxPreviewPdf';
+import { buildLocalPracticeDocx, isLocalPracticeDocxTemplate } from '../services/haloApi';
+import { hasPracticeDocxTemplateFile } from '../services/practiceDocxTemplates';
+import type { PatientForDocuments } from '../../shared/patientDemographics';
 
 const router = Router();
 router.use(requireAuth);
@@ -28,13 +32,25 @@ router.post('/templates', async (req: Request, res: Response) => {
 // If return_type === 'docx' and patientId is set, uploads DOCX to patient's Patient Notes folder and returns { success, fileId, name }.
 router.post('/generate-note', async (req: Request, res: Response) => {
   try {
-    const { user_id, template_id, text, return_type, patientId, fileName } = req.body as {
+    const { user_id, template_id, text, return_type, patientId, fileName, patientChart, mergeFields } =
+      req.body as {
       user_id?: string;
       template_id: string;
       text: string;
       return_type: 'note' | 'docx';
       patientId?: string;
       fileName?: string;
+      mergeFields?: Record<string, string>;
+      patientChart?: {
+        name?: string;
+        dob?: string;
+        sex?: 'M' | 'F';
+        folderNumber?: string;
+        contactNumber?: string;
+        referringDoctor?: string;
+        visitType?: 'new' | 'follow_up';
+        visitDate?: string;
+      };
     };
 
     if (!template_id || typeof text !== 'string') {
@@ -43,7 +59,17 @@ router.post('/generate-note', async (req: Request, res: Response) => {
     }
 
     const userId = user_id || config.haloUserId;
-    const result = await generateNote({ user_id: userId, template_id, text, return_type });
+    const result = await generateNote({
+      user_id: userId,
+      template_id,
+      text,
+      return_type,
+      patientChart: (patientChart as PatientForDocuments | undefined) ?? null,
+      mergeFields:
+        mergeFields && typeof mergeFields === 'object' && !Array.isArray(mergeFields)
+          ? mergeFields
+          : undefined,
+    });
 
     if (return_type === 'note') {
       res.json({ notes: result });
@@ -72,8 +98,9 @@ router.post('/generate-note', async (req: Request, res: Response) => {
 
     res.json({ success: true, fileId, name: finalFileName });
   } catch (err) {
-    console.error('Halo generate-note error:', err);
     const message = err instanceof Error ? err.message : 'Note generation failed.';
+    console.error('Halo generate-note error:', message);
+    if (err instanceof Error && err.stack) console.error(err.stack);
     const status = message.includes('502') ? 502 : message.includes('Invalid') ? 400 : 500;
     res.status(status).json({ error: message });
   }
@@ -96,6 +123,51 @@ router.post('/note-preview-pdf', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('note-preview-pdf error:', err);
     const message = err instanceof Error ? err.message : 'PDF preview failed.';
+    res.status(500).json({ error: message });
+  }
+});
+
+// POST /api/halo/note-preview-docx-pdf
+// Body: { template_id, text, patientId, patientChart? } — builds the same DOCX as Save, exports PDF for preview.
+router.post('/note-preview-docx-pdf', async (req: Request, res: Response) => {
+  try {
+    const { template_id, text, patientId, patientChart } = req.body as {
+      template_id?: string;
+      text?: string;
+      patientId?: string;
+      patientChart?: PatientForDocuments;
+    };
+
+    if (!template_id || typeof text !== 'string') {
+      res.status(400).json({ error: 'template_id and text are required.' });
+      return;
+    }
+    if (!hasPracticeDocxTemplateFile(template_id) && !isLocalPracticeDocxTemplate(template_id)) {
+      res.status(400).json({ error: 'No practice Word template found for this template_id.' });
+      return;
+    }
+    if (!patientId || !req.session.accessToken) {
+      res.status(400).json({ error: 'patientId is required for Word layout preview.' });
+      return;
+    }
+
+    const token = req.session.accessToken;
+    const docxBuffer = await buildLocalPracticeDocx({
+      user_id: config.haloUserId,
+      template_id,
+      text,
+      return_type: 'docx',
+      patientChart: (patientChart as PatientForDocuments | undefined) ?? null,
+    });
+
+    const pdfBuffer = await convertDocxBufferToPdfBuffer(token, docxBuffer, 'note_preview');
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('note-preview-docx-pdf error:', err);
+    const message = err instanceof Error ? err.message : 'DOCX PDF preview failed.';
     res.status(500).json({ error: message });
   }
 });

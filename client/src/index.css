@@ -73,3 +73,121 @@ body {
 .sidebar-light-scroll::-webkit-scrollbar-thumb:hover {
   background: rgb(79 182 178 / 0.55);
 }
+
+/* Rich HTML notes: compact on phone so letterhead + patient table fit in view */
+.rich-note-preview .rich-note-gap {
+  display: block;
+  height: 0.35rem;
+}
+
+.rich-note-preview .rich-letterhead {
+  max-width: 100%;
+}
+
+.rich-note-preview .docx-letterhead img {
+  display: block;
+  max-width: min(100%, 320px);
+  height: auto;
+  margin: 0 auto;
+}
+
+@media (max-width: 640px) {
+  .rich-note-preview {
+    font-size: 10px;
+    line-height: 1.3;
+  }
+
+  .rich-note-preview .rich-note-gap {
+    height: 0.2rem;
+  }
+
+  .rich-note-preview .rich-lh-name {
+    margin-bottom: 2px !important;
+    font-size: 13px !important;
+    letter-spacing: 0.02em !important;
+  }
+
+  .rich-note-preview .rich-lh-quals {
+    margin-bottom: 3px !important;
+    font-size: 6.5px !important;
+    line-height: 1.15 !important;
+  }
+
+  .rich-note-preview .rich-lh-ecg {
+    margin: 3px 0 !important;
+  }
+
+  .rich-note-preview .rich-lh-ecg-svg {
+    width: 68px !important;
+    max-width: 32vw !important;
+  }
+
+  .rich-note-preview .rich-lh-cardio {
+    margin-bottom: 4px !important;
+    font-size: 8px !important;
+  }
+
+  .rich-note-preview .rich-lh-contact {
+    font-size: 6.5px !important;
+    line-height: 1.15 !important;
+    margin-bottom: 4px !important;
+  }
+
+  .rich-note-preview .rich-lh-contact tr {
+    display: block;
+  }
+
+  .rich-note-preview .rich-lh-contact-left,
+  .rich-note-preview .rich-lh-contact-right {
+    display: block !important;
+    width: 100% !important;
+    text-align: left !important;
+    padding: 0 0 2px !important;
+  }
+
+  .rich-note-preview .rich-lh-contact-right {
+    padding-top: 2px !important;
+  }
+
+  .rich-note-preview .rich-lh-rule {
+    height: 1px !important;
+    border-top-width: 1px !important;
+  }
+
+  .rich-note-preview .rooms-patient-table {
+    margin-bottom: 6px !important;
+  }
+
+  .rich-note-preview .rooms-pt-label,
+  .rich-note-preview .rooms-pt-value {
+    font-size: 8px !important;
+    padding: 1px 3px !important;
+    line-height: 1.2 !important;
+  }
+
+  .rich-note-preview .clinical-note-body {
+    font-size: 10px !important;
+    line-height: 1.3 !important;
+  }
+
+  .rich-note-preview .rich-clinical-h3 {
+    margin: 6px 0 2px !important;
+    font-size: 10px !important;
+  }
+
+  .rich-note-preview .rich-clinical-p {
+    margin-bottom: 4px !important;
+    font-size: 10px !important;
+    line-height: 1.3 !important;
+  }
+}
+
+@media (max-width: 380px) {
+  .rich-note-preview .rich-lh-quals {
+    font-size: 6px !important;
+  }
+
+  .rich-note-preview .rich-lh-ecg-svg {
+    width: 60px !important;
+  }
+}

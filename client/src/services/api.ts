@@ -96,7 +96,7 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
       typeof window !== 'undefined' &&
       (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
     const hint = pageIsLocal
-      ? `Failed to connect to the API (${detail}). For local dev, start the backend (often port 3000) and keep VITE_API_URL aligned.`
+      ? `Backend not reachable (${detail}). From the project folder run: npm run dev — that starts the API on port 3000 and the app on port 5173. Open http://localhost:5173 (do not set VITE_API_URL for normal local dev).`
       : `Can't reach the app backend (${detail}). If the website is hosted separately from the API, rebuild the client with VITE_API_URL set to your backend URL.`;
     throw new ApiError(hint, 0);
   }
@@ -527,6 +527,62 @@ export async function generateNotePreview(params: {
   throw lastError;
 }
 
+/** Letterhead HTML extracted from Templates/{template}.docx (Baskerville + ECG image). */
+export async function fetchPracticeLetterheadHtml(templateId: string): Promise<{
+  html: string;
+  template_path: string | null;
+  source: 'docx' | 'fallback';
+}> {
+  const q = encodeURIComponent(templateId);
+  return request<{ html: string; template_path: string | null; source: 'docx' | 'fallback' }>(
+    `/api/practice/letterhead?template_id=${q}`
+  );
+}
+
+/** PDF preview from the same DOCX builder as Save (Report / Rooms Consult). */
+export async function fetchPracticeDocxPreviewPdf(
+  params: {
+    template_id: string;
+    text: string;
+    patientId: string;
+    patientChart?: {
+      name?: string;
+      dob?: string;
+      sex?: 'M' | 'F';
+      folderNumber?: string;
+      contactNumber?: string;
+      referringDoctor?: string;
+      visitType?: 'new' | 'follow_up';
+      visitDate?: string;
+    };
+  },
+  signal?: AbortSignal
+): Promise<Blob> {
+  const url = `${API_BASE}/api/halo/note-preview-docx-pdf`;
+  const res = await fetch(url, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+    signal,
+  });
+  if (res.status === 401) {
+    window.location.href = '/';
+    throw new ApiError('Not authenticated', 401);
+  }
+  if (!res.ok) {
+    let msg = `Preview failed (${res.status})`;
+    try {
+      const j = (await res.json()) as { error?: string };
+      if (typeof j.error === 'string') msg = j.error;
+    } catch {
+      /* ignore */
+    }
+    throw new ApiError(msg, res.status);
+  }
+  return res.blob();
+}
+
 /** Build inline PDF preview from the same full text used for DOCX (chart + note). */
 export async function fetchNotePreviewPdf(text: string, signal?: AbortSignal): Promise<Blob> {
   const maxAttempts = 5;
@@ -576,18 +632,36 @@ export const saveNoteAsDocx = (params: {
   text: string;
   fileName?: string;
   user_id?: string;
+  mergeFields?: Record<string, string>;
+  patientChart?: {
+    name?: string;
+    dob?: string;
+    sex?: 'M' | 'F';
+    folderNumber?: string;
+    contactNumber?: string;
+    referringDoctor?: string;
+    visitType?: 'new' | 'follow_up';
+    visitDate?: string;
+  };
 }) =>
-  requestWithTransientRetry<{ success: boolean; fileId: string; name: string }>('/api/halo/generate-note', {
-    method: 'POST',
-    body: JSON.stringify({
-      template_id: params.template_id,
-      text: params.text,
-      return_type: 'docx',
-      patientId: params.patientId,
+  requestWithTransientRetry<{ success: boolean; fileId: string; name: string }>(
+    '/api/halo/generate-note',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        template_id: params.template_id,
+        text: params.text,
+        return_type: 'docx',
+        patientId: params.patientId,
       fileName: params.fileName,
       user_id: params.user_id,
+      patientChart: params.patientChart,
+      ...(params.mergeFields && Object.keys(params.mergeFields).length > 0
+        ? { mergeFields: params.mergeFields }
+        : {}),
     }),
-  });
+    }
+  );
 
 /** Email the current note; attaches Word when template_id is set. Body stays short when .docx attaches (full text only if attachment fails). */
 export const sendClinicalNoteEmail = (params: {

@@ -1,3 +1,4 @@
+import fs from 'fs';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import session from 'express-session';
@@ -12,6 +13,7 @@ import haloRoutes from './routes/halo';
 import requestTemplateRoutes from './routes/requestTemplate';
 import emailNoteRoutes from './routes/emailNote';
 import emailWorkspaceFileRoutes from './routes/emailWorkspaceFile';
+import practiceRoutes from './routes/practice';
 import { startScheduler } from './jobs/scheduler';
 
 const app = express();
@@ -67,10 +69,28 @@ const authLimiter = rateLimit({
 
 // --- MIDDLEWARE ---
 app.use(globalLimiter);
-app.use(cors({
-  origin: config.clientUrl,
-  credentials: true,
-}));
+
+const devCorsOrigins = [
+  config.clientUrl,
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+];
+const corsOrigins = config.isProduction ? [config.clientUrl] : [...new Set(devCorsOrigins)];
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || corsOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`CORS blocked origin: ${origin}`));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: '50mb' }));
 app.use(session({
   secret: config.sessionSecret,
@@ -93,11 +113,34 @@ app.use('/api/halo', haloLimiter, haloRoutes);
 app.use('/api/request-template', requestTemplateRoutes);
 app.use('/api/email-note', emailNoteRoutes);
 app.use('/api/email-workspace-file', emailWorkspaceFileRoutes);
+app.use('/api/practice', practiceRoutes);
 
 // Health check
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+/**
+ * Development UI on port 3000 (no slow proxy — that hung when Vite was down).
+ * 1. If client/dist exists, serve it immediately.
+ * 2. Otherwise redirect browser to Vite (CLIENT_URL, usually :5173).
+ */
+if (!config.isProduction) {
+  const distPath = path.join(__dirname, '../../client/dist');
+  const indexHtml = path.join(distPath, 'index.html');
+  const viteUi = config.clientUrl.replace(/\/$/, '');
+
+  if (fs.existsSync(indexHtml)) {
+    app.use(express.static(distPath));
+    app.get(/^(?!\/api).*/, (_req, res) => {
+      res.sendFile(indexHtml);
+    });
+  } else {
+    app.get(/^(?!\/api).*/, (req, res) => {
+      res.redirect(302, `${viteUi}${req.originalUrl}`);
+    });
+  }
+}
 
 // Serve frontend in production
 if (config.isProduction) {
@@ -135,6 +178,16 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 
 app.listen(config.port, () => {
   console.log(`Halo server running on port ${config.port} (${config.isProduction ? 'production' : 'development'})`);
+  if (!config.isProduction) {
+    const distIndex = path.join(__dirname, '../../client/dist/index.html');
+    if (fs.existsSync(distIndex)) {
+      console.log(`  App UI:  http://localhost:${config.port}  (serving client/dist)`);
+    } else {
+      console.log(`  API:     http://localhost:${config.port}/api/health`);
+      console.log(`  App UI:  ${config.clientUrl}  — run "npm run dev" (starts API + Vite)`);
+      console.log(`  Tip:     opening :${config.port} redirects to Vite until you run "npm run build:client"`);
+    }
+  }
   if (config.isProduction) {
     const ver = process.env.SOURCE_VERSION || process.env.HEROKU_SLUG_COMMIT || '';
     if (ver) console.log(`[deploy] Git commit on Heroku: ${ver.slice(0, 40)}`);

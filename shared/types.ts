@@ -97,6 +97,8 @@ export interface HaloNote {
   dirty?: boolean;
   /** Structured fields from generate_note (for preview before DOCX) */
   fields?: NoteField[];
+  /** Gemini field map at generation time — used for Word template merge ({{ key }}). */
+  docxMerge?: Record<string, string>;
 }
 
 export interface HaloTemplate {

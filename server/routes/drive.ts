@@ -15,6 +15,10 @@ import {
   parsePatientFolder,
 } from '../services/drive';
 import { recoverPendingJobs, runSchedulerNow, getSchedulerStatus } from '../jobs/scheduler';
+import { convertDocxBufferToPdfBuffer } from '../services/docxPreviewPdf';
+import { isHaloEphemeralPreviewFile, isHaloSystemDriveFolder } from '../../shared/workspaceDraft';
+import { buildDriveMultipartBody } from '../services/driveMultipart';
+import { assertValidDriveFileId, withDriveFileAccessQuery } from '../services/driveFileAccess';
 
 const router = Router();
 router.use(requireAuth);
@@ -66,22 +70,6 @@ function resolveUploadMimeType(fileName: string, reportedRaw: string): string | 
   return null;
 }
 
-/** Drive multipart uploads expect raw media bytes in part 2, not base64 text. */
-function buildDriveMultipartBody(
-  boundary: string,
-  metadata: { name: string; parents: string[]; mimeType: string },
-  mediaBytes: Buffer
-): Buffer {
-  const metaPart = JSON.stringify(metadata);
-  const head = Buffer.from(
-    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metaPart}\r\n` +
-      `--${boundary}\r\nContent-Type: ${metadata.mimeType}\r\n\r\n`,
-    'utf8'
-  );
-  const tail = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8');
-  return Buffer.concat([head, mediaBytes, tail]);
-}
-
 const DEFAULT_PAGE_SIZE = 50;
 
 // --- Routes ---
@@ -109,7 +97,9 @@ router.get('/patients', async (req: Request, res: Response) => {
     }
 
     const data = await driveRequest(token, url);
-    const patients = (data.files || []).map(parsePatientFolder);
+    const patients = (data.files || [])
+      .filter((f) => !isHaloSystemDriveFolder(f.name, f.appProperties))
+      .map(parsePatientFolder);
 
     // Auto-heal: update appProperties if folder name was changed in Drive
     for (const f of data.files || []) {
@@ -508,18 +498,20 @@ router.get('/patients/:id/files', async (req: Request, res: Response) => {
 
     const data = await driveRequest(token, url);
 
-    const files = (data.files || []).map((f) => ({
-      id: f.id,
-      name: f.name,
-      mimeType: f.mimeType,
-      url: f.webViewLink ?? '',
-      thumbnail: f.thumbnailLink ?? '',
-      createdTime: f.createdTime?.split('T')[0] ?? '',
-      haloTemplateId:
-        typeof (f as { appProperties?: Record<string, unknown> }).appProperties?.haloTemplateId === 'string'
-          ? ((f as { appProperties?: Record<string, unknown> }).appProperties!.haloTemplateId as string)
-          : undefined,
-    }));
+    const files = (data.files || [])
+      .filter((f) => !isHaloEphemeralPreviewFile(f.name, f.mimeType))
+      .map((f) => ({
+        id: f.id,
+        name: f.name,
+        mimeType: f.mimeType,
+        url: f.webViewLink ?? '',
+        thumbnail: f.thumbnailLink ?? '',
+        createdTime: f.createdTime?.split('T')[0] ?? '',
+        haloTemplateId:
+          typeof (f as { appProperties?: Record<string, unknown> }).appProperties?.haloTemplateId === 'string'
+            ? ((f as { appProperties?: Record<string, unknown> }).appProperties!.haloTemplateId as string)
+            : undefined,
+      }));
 
     res.json({ files, nextPage: data.nextPageToken || null });
   } catch (err) {
@@ -687,6 +679,7 @@ router.get('/files/:fileId/proxy', async (req: Request, res: Response) => {
   try {
     const token = req.session.accessToken!;
     const fileId = req.params.fileId;
+    assertValidDriveFileId(fileId);
 
     // Get file metadata first
     const meta = await driveRequest(token, `/files/${fileId}?fields=name,mimeType`);
@@ -698,25 +691,25 @@ router.get('/files/:fileId/proxy', async (req: Request, res: Response) => {
     // Google Workspace files need export, not direct download
     if (mimeType === 'application/vnd.google-apps.document') {
       contentResponse = await fetch(
-        `${config.driveApi}/files/${fileId}/export?mimeType=application/pdf`,
+        `${config.driveApi}${withDriveFileAccessQuery(`/files/${fileId}/export?mimeType=application/pdf`)}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       res.setHeader('Content-Type', 'application/pdf');
     } else if (mimeType === 'application/vnd.google-apps.spreadsheet') {
       contentResponse = await fetch(
-        `${config.driveApi}/files/${fileId}/export?mimeType=application/pdf`,
+        `${config.driveApi}${withDriveFileAccessQuery(`/files/${fileId}/export?mimeType=application/pdf`)}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       res.setHeader('Content-Type', 'application/pdf');
     } else if (mimeType === 'application/vnd.google-apps.presentation') {
       contentResponse = await fetch(
-        `${config.driveApi}/files/${fileId}/export?mimeType=application/pdf`,
+        `${config.driveApi}${withDriveFileAccessQuery(`/files/${fileId}/export?mimeType=application/pdf`)}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       res.setHeader('Content-Type', 'application/pdf');
     } else {
       contentResponse = await fetch(
-        `${config.driveApi}/files/${fileId}?alt=media`,
+        `${config.driveApi}${withDriveFileAccessQuery(`/files/${fileId}?alt=media`)}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       res.setHeader('Content-Type', mimeType);
@@ -733,7 +726,60 @@ router.get('/files/:fileId/proxy', async (req: Request, res: Response) => {
     res.send(Buffer.from(arrayBuffer));
   } catch (err) {
     console.error('File proxy error:', err);
-    res.status(500).json({ error: 'Failed to proxy file.' });
+    const message = err instanceof Error ? err.message : 'Failed to proxy file.';
+    const status = message.includes('[Drive 404]') ? 404 : 500;
+    res.status(status).json({
+      error: status === 404 ? 'File not found on Google Drive. It may have been deleted or moved.' : 'Failed to proxy file.',
+    });
+  }
+});
+
+// GET /files/:fileId/preview-pdf — DOCX → PDF via Google Docs (faithful in-app preview)
+router.get('/files/:fileId/preview-pdf', async (req: Request, res: Response) => {
+  try {
+    const token = req.session.accessToken!;
+    const fileId = req.params.fileId;
+    assertValidDriveFileId(fileId);
+
+    const meta = await driveRequest(token, `/files/${fileId}?fields=name,mimeType,parents`);
+    const mimeType = (meta.mimeType ?? '').toLowerCase();
+    const name = meta.name ?? 'file';
+    const isDocx =
+      mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      mimeType.includes('wordprocessingml.document') ||
+      name.toLowerCase().endsWith('.docx');
+
+    if (!isDocx) {
+      res.status(400).json({ error: 'Preview PDF is only available for Word (.docx) files.' });
+      return;
+    }
+
+    const docxRes = await fetch(`${driveApi}${withDriveFileAccessQuery(`/files/${fileId}?alt=media`)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!docxRes.ok) {
+      res.status(docxRes.status).json({ error: 'Failed to download DOCX for preview.' });
+      return;
+    }
+
+    const docxBuffer = Buffer.from(await docxRes.arrayBuffer());
+    const baseName = name.replace(/\.docx$/i, '') || 'document';
+    const pdfBuffer = await convertDocxBufferToPdfBuffer(token, docxBuffer, baseName);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(baseName)}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('File preview-pdf error:', err);
+    const message = err instanceof Error ? err.message : 'Failed to build preview PDF.';
+    const status = message.includes('[Drive 404]') ? 404 : 500;
+    res.status(status).json({
+      error:
+        status === 404
+          ? 'File not found on Google Drive. It may have been deleted or moved.'
+          : message,
+    });
   }
 });
 

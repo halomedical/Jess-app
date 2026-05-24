@@ -1,17 +1,37 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import type { Patient, DriveFile, LabAlert, BreadcrumbItem, ChatMessage, HaloNote } from '../../../shared/types';
-import { DEFAULT_HALO_TEMPLATE_ID, ECHO_TEMPLATE_ID, ROOMS_CONSULT_TEMPLATE_ID, ANGIOGRAM_TEMPLATE_ID } from '../../../shared/haloTemplates';
+import type { Patient, DriveFile, LabAlert, BreadcrumbItem, ChatMessage, HaloNote, UserSettings } from '../../../shared/types';
+import {
+  DEFAULT_HALO_TEMPLATE_ID,
+  ECHO_TEMPLATE_ID,
+  ROOMS_CONSULT_TEMPLATE_ID,
+  ANGIOGRAM_TEMPLATE_ID,
+  REPORT_TEMPLATE_ID,
+  WORKSPACE_GENERATION_TEMPLATE_OPTIONS,
+  isWorkspaceGenerationTemplateId,
+  workspaceGenerationTemplateLabel,
+} from '../../../shared/haloTemplates';
 import { stripLeadingDictationTemplateCue } from '../../../shared/dictationTemplateIntent';
-
-/** Workspace note generation is fixed to Rooms Consult only. */
-const WORKSPACE_TEMPLATE_ID = DEFAULT_HALO_TEMPLATE_ID;
-const WORKSPACE_TEMPLATE_LABEL = 'Rooms Consult';
 import { buildNotePlainText } from '../../../shared/notePlainText';
-import { buildClinicalNoteInputFromDictation, buildNoteTextWithPatientChart } from '../../../shared/patientChartContext';
+import {
+  buildNoteTextWithPatientChart,
+  buildPatientDemographicsForNoteInput,
+} from '../../../shared/patientChartContext';
 import { buildNotePreviewPdfText } from '../../../shared/notePreviewPdfText';
+import { formatDoctorLetterheadBlock } from '../../../shared/doctorLetterhead';
+import {
+  combineRichLetterheadWithClinicalNote,
+  htmlNoteContentToPlainText,
+  noteHasRichLetterhead,
+  templateUsesRichHtmlLetterhead,
+} from '../../../shared/richDoctorLetterhead';
+import { formatRoomsConsultPatientTableHtml } from '../../../shared/formatRoomsConsultForEditor';
+import { prepareClinicalBodyForRichLetterhead } from '../../../shared/prepareClinicalBodyForRichLetterhead';
+import { enrichParsedDataWithChart, parseGeminiJsonResponse } from '../../../shared/populateClinicalNoteTemplate';
+import { buildNoteTextForDocxMerge } from '../../../shared/noteDocxMergeText';
+import { stripPracticeLetterheadFromNote } from '../../../shared/stripPracticeLetterhead';
 import { formatAgeFromIsoDob } from '../../../shared/patientDemographics';
 import type { ClinicalWorkspaceDraft as PatientEditorDraft, ClinicalWorkspaceDraftFile } from '../../../shared/workspaceDraft';
-import { isHaloWorkspaceDraftFile } from '../../../shared/workspaceDraft';
+import { isHaloEphemeralPreviewFile, isHaloWorkspaceDraftFile } from '../../../shared/workspaceDraft';
 import { AppStatus, FOLDER_MIME_TYPE } from '../../../shared/types';
 
 import {
@@ -20,8 +40,9 @@ import {
   extractEchoReportText,
   extractDocumentText,
   extractLabAlerts, deleteFile, createFolder, askHaloStream,
-  generateNotePreview, saveNoteAsDocx, sendClinicalNoteEmail, sendWorkspaceFileEmail,
-  fetchWorkspaceDraft, saveWorkspaceDraft, fetchNotePreviewPdf,
+  saveNoteAsDocx, sendClinicalNoteEmail, sendWorkspaceFileEmail,
+  fetchWorkspaceDraft, saveWorkspaceDraft,   fetchNotePreviewPdf,
+  fetchPracticeDocxPreviewPdf,
 } from '../services/api';
 import {
   Upload, Calendar, Clock, CheckCircle2, ChevronLeft, ChevronDown, Loader2,
@@ -38,8 +59,14 @@ import { FileBrowser } from '../components/FileBrowser';
 import { NoteEditor } from '../components/NoteEditor';
 import { PatientChat } from '../components/PatientChat';
 import { BackgroundTaskChip } from '../components/BackgroundTaskChip';
-import { getErrorMessage, formatDocumentDateDisplay, sanitizeDocxFileBase } from '../utils/formatting';
+import {
+  getErrorMessage,
+  formatDocumentDateDisplay,
+  sanitizeDocxFileBase,
+  logDocxSaveError,
+} from '../utils/formatting';
 import { inAppPatientMirrorKey } from '../utils/inAppDraftMirror';
+import { generateClinicalNoteWithGemini } from '../services/geminiClient';
 
 interface Props {
   patient: Patient;
@@ -47,7 +74,9 @@ interface Props {
   onDataChange: () => void;
   onToast: (message: string, type: 'success' | 'error' | 'info') => void;
   userEmail?: string;
-  /** @deprecated Ignored; workspace always uses Rooms Consult for generation */
+  /** Profile for letterhead on generated notes */
+  userSettings?: UserSettings | null;
+  /** @deprecated Ignored; workspace uses template picker + Report default */
   templateId?: string;
   /** Mobile: open slide-over patient list */
   onOpenMobileNav?: () => void;
@@ -186,7 +215,15 @@ function shouldApplyRemoteWorkspace(
   return remote.savedAt > local!.savedAt;
 }
 
-export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChange, onToast, userEmail, onOpenMobileNav }) => {
+export const PatientWorkspace: React.FC<Props> = ({
+  patient,
+  onBack,
+  onDataChange,
+  onToast,
+  userEmail,
+  userSettings,
+  onOpenMobileNav,
+}) => {
   const scribeSessions = useRecordingSessions();
   const { processingPatientIds } = scribeSessions;
   const [files, setFiles] = useState<DriveFile[]>([]);
@@ -194,7 +231,12 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const [alerts, setAlerts] = useState<LabAlert[]>([]);
   const [notes, setNotes] = useState<HaloNote[]>([]);
   const [activeNoteIndex, setActiveNoteIndex] = useState(0);
-  const templateId = WORKSPACE_TEMPLATE_ID;
+  const [workspaceGenTemplateId, setWorkspaceGenTemplateId] = useState<string>(REPORT_TEMPLATE_ID);
+  const workspaceGenTemplateIdRef = useRef(REPORT_TEMPLATE_ID);
+  useEffect(() => {
+    workspaceGenTemplateIdRef.current = workspaceGenTemplateId;
+  }, [workspaceGenTemplateId]);
+  const templateId = workspaceGenTemplateId;
   const [pendingTranscript, setPendingTranscript] = useState<string | null>(null);
   /** Mirrors pendingTranscript for merge logic before React commits (scribe backlog + chained dictation). */
   const pendingTranscriptRef = useRef<string | null>(null);
@@ -277,6 +319,36 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     pendingTranscriptRef.current = pendingTranscript;
   }, [pendingTranscript]);
 
+  const wrapGeneratedNoteWithRichLetterhead = useCallback(
+    (templateId: string, rawFromModel: string, p: typeof patient) => {
+      const parsedData = parseGeminiJsonResponse(rawFromModel.trim());
+      const docxMerge = enrichParsedDataWithChart(templateId, parsedData, p);
+      const clinicalBody = prepareClinicalBodyForRichLetterhead(templateId, rawFromModel, p);
+      const demographicsHtml =
+        templateId === ROOMS_CONSULT_TEMPLATE_ID ? formatRoomsConsultPatientTableHtml(p) : null;
+      const content = combineRichLetterheadWithClinicalNote(clinicalBody, demographicsHtml, templateId);
+      return { content, docxMerge };
+    },
+    []
+  );
+
+  const docxTextForNote = useCallback(
+    (p: typeof patient, note: HaloNote) => {
+      const raw = buildNotePlainText(note);
+      const plain = templateUsesRichHtmlLetterhead(note.template_id || workspaceGenTemplateId)
+        ? htmlNoteContentToPlainText(raw)
+        : raw;
+      const tid = note.template_id || workspaceGenTemplateId;
+      return buildNoteTextForDocxMerge(
+        tid,
+        stripPracticeLetterheadFromNote(plain),
+        p,
+        note.docxMerge
+      );
+    },
+    [workspaceGenTemplateId]
+  );
+
   const patientChartPayload = useMemo(
     () => ({
       name: patient.name,
@@ -335,8 +407,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     pendingTranscript,
     notes,
     activeNoteIndex,
-    selectedTemplatesForGenerate: [WORKSPACE_TEMPLATE_ID],
-    templateId: WORKSPACE_TEMPLATE_ID,
+    selectedTemplatesForGenerate: [workspaceGenTemplateId],
+    templateId: workspaceGenTemplateId,
   };
 
   // File viewer state
@@ -377,23 +449,25 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const isFolder = (file: DriveFile): boolean => file.mimeType === FOLDER_MIME_TYPE;
 
   const filesForBrowser = useMemo(
-    () => files.filter((f) => !isHaloWorkspaceDraftFile(f.name)),
+    () => files.filter((f) => !isHaloWorkspaceDraftFile(f.name) && !isHaloEphemeralPreviewFile(f.name, f.mimeType)),
     [files]
   );
 
   // Load folder contents (with loading indicator)
   const loadFolderContents = useCallback(async (folderId: string) => {
+    const pid = patientRef.current.id;
     setStatus(AppStatus.LOADING);
     try {
-      const contents = folderId === patient.id
-        ? await fetchFiles(patient.id)
+      const contents = folderId === pid
+        ? await fetchFiles(pid)
         : await fetchFolderContents(folderId);
+      if (patientRef.current.id !== pid) return;
       setFiles(contents);
     } catch (err) {
       onToast(getErrorMessage(err), 'error');
     }
     setStatus(AppStatus.IDLE);
-  }, [patient.id, onToast]);
+  }, [onToast]);
 
   // Silent refresh (no loading indicator — used for periodic polling)
   const silentRefresh = useCallback(async () => {
@@ -540,7 +614,16 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   const createTargetNote = useCallback(
     async (templateId: string): Promise<HaloNote> => {
       const createdAt = new Date().toISOString();
-      const label = templateId === ECHO_TEMPLATE_ID ? 'Echo Report' : 'Rooms Consult';
+      const label =
+        templateId === ECHO_TEMPLATE_ID
+          ? 'Echo Report'
+          : templateId === ANGIOGRAM_TEMPLATE_ID
+            ? 'Angiogram Report'
+            : templateId === REPORT_TEMPLATE_ID
+              ? 'Report'
+              : templateId === ROOMS_CONSULT_TEMPLATE_ID
+                ? 'Rooms Consult'
+                : 'Note';
       const note: HaloNote = {
         noteId: `note-${templateId}-${Date.now()}`,
         title: `${label} ${formatDocumentDateDisplay()}`,
@@ -643,7 +726,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       const file = input.files[0];
       const active = notes[activeNoteIndex];
       if (!active) return;
-      const templateId = active.template_id || WORKSPACE_TEMPLATE_ID;
+      const templateId = active.template_id || workspaceGenTemplateIdRef.current;
       try {
         // Upload file to Drive for recordkeeping (do not block extraction if upload fails)
         uploadFile(patient.id, file, file.name, { haloTemplateId: templateId }).catch(() => {});
@@ -672,17 +755,20 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           return;
         }
 
-        const res = await generateNotePreview({ template_id: templateId, text: extracted });
-        const first = res.notes?.[0];
-        const content = first?.content?.trim() ? first.content : extracted;
+        const raw = await generateClinicalNoteWithGemini({
+          transcriptionText: extracted,
+          chartReference: buildPatientDemographicsForNoteInput(patient),
+          templateId,
+        });
+        const { content, docxMerge } = wrapGeneratedNoteWithRichLetterhead(templateId, raw.trim(), patient);
         const now = new Date().toISOString();
         const updated: HaloNote = {
           ...active,
           content,
+          docxMerge,
           template_id: templateId,
           dirty: false,
           lastSavedAt: now,
-          ...(first?.fields && first.fields.length > 0 ? { fields: first.fields } : {}),
         };
         setNotes((prev) => prev.map((n) => (n.noteId === active.noteId ? updated : n)));
         onToast('Note filled from uploaded file.', 'success');
@@ -692,7 +778,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         input.value = '';
       }
     },
-    [activeNoteIndex, notes, onToast, patient.id]
+    [activeNoteIndex, notes, onToast, patient, wrapGeneratedNoteWithRichLetterhead]
   );
 
   const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null);
@@ -776,19 +862,26 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             })).trim();
             if (extracted) {
               setUploadMessage('Generating Echo Report note…');
-              const res = await generateNotePreview({ template_id: ECHO_TEMPLATE_ID, text: extracted });
-              const first = res.notes?.[0];
-              const content = first?.content?.trim() ? first.content : extracted;
+              const raw = await generateClinicalNoteWithGemini({
+                transcriptionText: extracted,
+                chartReference: buildPatientDemographicsForNoteInput(patient),
+                templateId: ECHO_TEMPLATE_ID,
+              });
+              const { content, docxMerge } = wrapGeneratedNoteWithRichLetterhead(
+                ECHO_TEMPLATE_ID,
+                raw.trim(),
+                patient
+              );
               const createdAt = new Date().toISOString();
               const note: HaloNote = {
-                noteId: first?.noteId ?? `note-${ECHO_TEMPLATE_ID}-${Date.now()}`,
+                noteId: `note-${ECHO_TEMPLATE_ID}-${Date.now()}`,
                 title: `Echo Report ${formatDocumentDateDisplay()}`,
                 content,
+                docxMerge,
                 template_id: ECHO_TEMPLATE_ID,
                 createdAt,
                 lastSavedAt: createdAt,
                 dirty: false,
-                ...(first?.fields && first.fields.length > 0 ? { fields: first.fields } : {}),
               };
               setNotes((prev) => {
                 const newIdx = prev.length;
@@ -822,6 +915,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       currentFolderId,
       onToast,
       loadFolderContents,
+      wrapGeneratedNoteWithRichLetterhead,
+      patient,
     ]
   );
 
@@ -842,17 +937,17 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       pendingTranscript,
       notes,
       activeNoteIndex,
-      selectedTemplatesForGenerate: [WORKSPACE_TEMPLATE_ID],
-      templateId: WORKSPACE_TEMPLATE_ID,
+      selectedTemplatesForGenerate: [workspaceGenTemplateId],
+      templateId: workspaceGenTemplateId,
     };
     persistDraftToStorage(activeDraftPatientIdRef.current, {
       pendingTranscript,
       notes,
       activeNoteIndex,
-      selectedTemplatesForGenerate: [WORKSPACE_TEMPLATE_ID],
-      templateId: WORKSPACE_TEMPLATE_ID,
+      selectedTemplatesForGenerate: [workspaceGenTemplateId],
+      templateId: workspaceGenTemplateId,
     });
-  }, [pendingTranscript, notes, activeNoteIndex, userEmail, persistDraftToStorage]);
+  }, [pendingTranscript, notes, activeNoteIndex, workspaceGenTemplateId, userEmail, persistDraftToStorage]);
 
   // In-app only: flush to localStorage when leaving the tab or closing (React effects can be skipped on hard close)
   useEffect(() => {
@@ -890,15 +985,16 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       const note = notes[noteIndex];
       const plain = note ? buildNotePlainText(note) : '';
       if (!plain.trim()) return;
-      const text = buildNoteTextWithPatientChart(patient, plain);
       setSavingNoteIndex(noteIndex);
       setDocxTask({ phase: 'running', message: 'Saving DOCX…' });
       try {
         await saveNoteAsDocx({
           patientId: patient.id,
-          template_id: note.template_id || WORKSPACE_TEMPLATE_ID,
-          text,
+          template_id: note.template_id || workspaceGenTemplateId,
+          text: docxTextForNote(patient, note),
+          mergeFields: note.docxMerge,
           fileName: sanitizeDocxFileBase(note.title || 'Note') || undefined,
+          patientChart: patient,
         });
         setNotes((prev) =>
           prev.map((n, i) => (i !== noteIndex ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }))
@@ -907,12 +1003,15 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         onDataChange();
         setDocxTask({ phase: 'success', message: 'DOCX saved to Patient Notes' });
       } catch (err) {
-        setDocxTask({ phase: 'error', message: getErrorMessage(err) });
+        logDocxSaveError('Save DOCX', err);
+        const msg = getErrorMessage(err);
+        setDocxTask({ phase: 'error', message: msg.split('\n')[0] });
+        onToast(msg.split('\n')[0], 'error');
       } finally {
         setSavingNoteIndex(null);
       }
     },
-    [notes, patient, currentFolderId, loadFolderContents, onDataChange]
+    [notes, patient, currentFolderId, loadFolderContents, onDataChange, docxTextForNote, workspaceGenTemplateId, onToast]
   );
 
   const handleSaveAll = useCallback(async () => {
@@ -923,12 +1022,13 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         const note = notes[i];
         const plain = buildNotePlainText(note);
         if (!plain.trim()) continue;
-        const text = buildNoteTextWithPatientChart(patient, plain);
         await saveNoteAsDocx({
           patientId: patient.id,
-          template_id: note.template_id || WORKSPACE_TEMPLATE_ID,
-          text,
+          template_id: note.template_id || workspaceGenTemplateId,
+          text: docxTextForNote(patient, note),
+          mergeFields: note.docxMerge,
           fileName: sanitizeDocxFileBase(note.title || `Note ${i + 1}`) || undefined,
+          patientChart: patient,
         });
         setNotes((prev) =>
           prev.map((n, j) => (j !== i ? n : { ...n, lastSavedAt: new Date().toISOString(), dirty: false }))
@@ -943,9 +1043,12 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         setDocxTask({ phase: 'idle' });
       }
     } catch (err) {
-      setDocxTask({ phase: 'error', message: getErrorMessage(err) });
+      logDocxSaveError('Save all DOCX', err);
+      const msg = getErrorMessage(err);
+      setDocxTask({ phase: 'error', message: msg.split('\n')[0] });
+      onToast(msg.split('\n')[0], 'error');
     }
-  }, [notes, patient, currentFolderId, loadFolderContents, onDataChange]);
+  }, [notes, patient, currentFolderId, loadFolderContents, onDataChange, docxTextForNote, workspaceGenTemplateId, onToast]);
 
   const handleEmail = useCallback((noteIndex: number) => {
     if (!userEmail?.trim()) {
@@ -976,6 +1079,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       docBase = sanitizeDocxFileBase(`${note?.title || 'Note'} ${patient.name}`);
     } else if (emailComposeMode === 'transcript') {
       plain = (pendingTranscript ?? '').trim();
+      const lh = formatDoctorLetterheadBlock(userSettings).trim();
+      if (lh && plain) plain = `${lh}\n\n${plain}`;
       subject = `Clinical dictation — ${patient.name}`;
       docBase = sanitizeDocxFileBase(`Dictation ${patient.name}`);
     } else {
@@ -1000,7 +1105,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       onToast(getErrorMessage(err), 'error');
     }
     setEmailNoteSending(false);
-  }, [emailComposeMode, emailNoteIndex, notes, patient, pendingTranscript, templateId, userEmail, onToast]);
+  }, [emailComposeMode, emailNoteIndex, notes, patient, pendingTranscript, templateId, userEmail, userSettings, onToast]);
 
   const handleGeneratePatientSummary = useCallback(async () => {
     setPatientInsightLoading(true);
@@ -1062,6 +1167,10 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     pendingTranscriptRef.current = initialPending;
     setNotes(draft?.notes ?? []);
     setActiveNoteIndex(draft ? Math.min(draft.activeNoteIndex, Math.max((draft.notes?.length ?? 1) - 1, 0)) : 0);
+    const tid = draft?.templateId;
+    setWorkspaceGenTemplateId(
+      tid && isWorkspaceGenerationTemplateId(tid) ? tid : REPORT_TEMPLATE_ID
+    );
 
     const applyTranscript = (text: string) => {
       if (!text.trim()) {
@@ -1145,10 +1254,20 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             Math.max((parsed.draft.notes?.length ?? 1) - 1, 0)
           )
         );
+        const remoteTid = parsed.draft.templateId;
+        setWorkspaceGenTemplateId(
+          remoteTid && isWorkspaceGenerationTemplateId(remoteTid) ? remoteTid : REPORT_TEMPLATE_ID
+        );
         persistDraftToStorage(pid, {
           ...parsed.draft,
-          selectedTemplatesForGenerate: [WORKSPACE_TEMPLATE_ID],
-          templateId: WORKSPACE_TEMPLATE_ID,
+          selectedTemplatesForGenerate: [
+            isWorkspaceGenerationTemplateId(parsed.draft.templateId)
+              ? parsed.draft.templateId
+              : REPORT_TEMPLATE_ID,
+          ],
+          templateId: isWorkspaceGenerationTemplateId(parsed.draft.templateId)
+            ? parsed.draft.templateId
+            : REPORT_TEMPLATE_ID,
         });
       } catch {
         // offline or API error — keep local draft only
@@ -1169,8 +1288,8 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       pendingTranscript,
       notes,
       activeNoteIndex,
-      selectedTemplatesForGenerate: [WORKSPACE_TEMPLATE_ID],
-      templateId: WORKSPACE_TEMPLATE_ID,
+      selectedTemplatesForGenerate: [workspaceGenTemplateId],
+      templateId: workspaceGenTemplateId,
     };
     if (!draftHasContent(draftPayload)) return;
     const t = window.setTimeout(() => {
@@ -1187,6 +1306,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
     pendingTranscript,
     notes,
     activeNoteIndex,
+    workspaceGenTemplateId,
   ]);
 
   const revokePreviewPdf = useCallback(() => {
@@ -1225,11 +1345,34 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       }
       const gen = ++pdfFetchGenRef.current;
 
-      const text = buildNotePreviewPdfText(p, note);
+      const templateId = note.template_id || workspaceGenTemplateIdRef.current;
+      const useWordPreview =
+        templateId === REPORT_TEMPLATE_ID ||
+        templateId === ROOMS_CONSULT_TEMPLATE_ID ||
+        templateId === ECHO_TEMPLATE_ID;
+      const mergeText = docxTextForNote(p, note);
       setPreviewPdfLoading(true);
       setPreviewPdfError(null);
       try {
-        const blob = await fetchNotePreviewPdf(text, signal);
+        const blob = useWordPreview
+          ? await fetchPracticeDocxPreviewPdf(
+              {
+                template_id: templateId,
+                text: mergeText,
+                patientId: p.id,
+                patientChart: patientChartPayload,
+              },
+              signal
+            )
+          : await fetchNotePreviewPdf(
+              buildNotePreviewPdfText(
+                p,
+                noteHasRichLetterhead(note.content ?? '')
+                  ? { ...note, content: htmlNoteContentToPlainText(note.content ?? '') }
+                  : note
+              ),
+              signal
+            );
         if (gen !== pdfFetchGenRef.current) return;
         const prevUrl = previewPdfUrlRef.current;
         const url = URL.createObjectURL(blob);
@@ -1251,7 +1394,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         if (gen === pdfFetchGenRef.current) setPreviewPdfLoading(false);
       }
     },
-    [revokePreviewPdf]
+    [revokePreviewPdf, docxTextForNote, patientChartPayload]
   );
 
   const loadPreviewPdf = useCallback(
@@ -1298,20 +1441,27 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
       const targetId = generationTargetNoteIdRef.current;
       const targetNote =
         targetId ? notesRef.current.find((n) => n.noteId === targetId) : null;
-      const templateForRun = targetNote?.template_id || WORKSPACE_TEMPLATE_ID;
-      const inputText = buildClinicalNoteInputFromDictation(generationPatient, dictationForModel);
+      const templateForRun = targetNote?.template_id || workspaceGenTemplateIdRef.current;
+      const chartReference = buildPatientDemographicsForNoteInput(generationPatient);
       try {
-        const res = await generateNotePreview({ template_id: templateForRun, text: inputText });
+        const raw = await generateClinicalNoteWithGemini({
+          transcriptionText: dictationForModel,
+          chartReference,
+          templateId: templateForRun,
+        });
         if (patientRef.current.id !== generationPatientId) return;
-        const first = res.notes?.[0];
-        const content = first?.content?.trim() ? first.content : dictationForModel;
+        const { content, docxMerge } = wrapGeneratedNoteWithRichLetterhead(
+          templateForRun,
+          raw.trim(),
+          generationPatient
+        );
         const createdAt = new Date().toISOString();
         const label =
           templateForRun === ECHO_TEMPLATE_ID
             ? 'Echo Report'
             : templateForRun === ANGIOGRAM_TEMPLATE_ID
               ? 'Angiogram Report'
-              : WORKSPACE_TEMPLATE_LABEL;
+              : workspaceGenerationTemplateLabel(templateForRun);
 
         // If there is an active "new note" target that is still empty, fill it instead of creating a duplicate.
         const targetIsEmpty = !!(targetNote && !buildNotePlainText(targetNote).trim());
@@ -1321,23 +1471,23 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             ...targetNote,
             title: targetNote.title || `${label} ${formatDocumentDateDisplay()}`,
             content,
+            docxMerge,
             template_id: templateForRun,
             lastSavedAt: createdAt,
             dirty: false,
-            ...(first?.fields && first.fields.length > 0 ? { fields: first.fields } : {}),
           };
           setNotes((prev) => prev.map((n) => (n.noteId === targetNote.noteId ? updated : n)));
           noteToPreview = updated;
         } else {
           const note: HaloNote = {
-            noteId: first?.noteId ?? `note-${templateForRun}-${Date.now()}`,
+            noteId: `note-${templateForRun}-${Date.now()}`,
             title: `${label} ${formatDocumentDateDisplay()}`,
             content,
+            docxMerge,
             template_id: templateForRun,
             createdAt,
             lastSavedAt: createdAt,
             dirty: false,
-            ...(first?.fields && first.fields.length > 0 ? { fields: first.fields } : {}),
           };
           setNotes((prev) => {
             const newIdx = prev.length;
@@ -1354,14 +1504,15 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         }
 
         const plainForDrive = buildNotePlainText(noteToPreview);
-        const docxText = buildNoteTextWithPatientChart(generationPatient, plainForDrive);
         setDocxTask({ phase: 'running', message: 'Saving note to Patient Notes…' });
         try {
           await saveNoteAsDocx({
             patientId: generationPatientId,
-            template_id: noteToPreview.template_id || WORKSPACE_TEMPLATE_ID,
-            text: docxText,
+            template_id: noteToPreview.template_id || workspaceGenTemplateIdRef.current,
+            text: docxTextForNote(generationPatient, noteToPreview),
+            mergeFields: noteToPreview.docxMerge,
             fileName: sanitizeDocxFileBase(noteToPreview.title || `${label} note`) || undefined,
+            patientChart: generationPatient,
           });
           if (patientRef.current.id !== generationPatientId) return;
           await loadFolderContents(currentFolderId);
@@ -1402,7 +1553,15 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
         }
       }
     },
-    [onToast, loadPreviewPdfForNote, loadFolderContents, currentFolderId, onDataChange]
+    [
+      onToast,
+      loadPreviewPdfForNote,
+      loadFolderContents,
+      currentFolderId,
+      onDataChange,
+      docxTextForNote,
+      wrapGeneratedNoteWithRichLetterhead,
+    ]
   );
 
   const handleGenerateFromTemplates = useCallback(() => {
@@ -1702,7 +1861,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
   );
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-white md:bg-white relative w-full max-w-[100vw]">
+    <div className="flex h-[100dvh] max-h-[100dvh] min-h-0 w-full max-w-[100vw] flex-col bg-white md:h-full md:max-h-none md:bg-white relative">
       {/* Header — solid background only (no sticky/blur); mobile metadata collapsible */}
       <div className="shrink-0 border-b border-[#E5E7EB] bg-white px-3 py-2 safe-pad-t shadow-[0_1px_2px_rgba(15,23,42,0.06)] md:px-8 md:py-4 md:shadow-sm flex flex-col md:flex-row md:justify-between md:items-start gap-2 md:gap-4">
         <div className="flex items-start gap-1.5 md:gap-3 min-w-0 flex-1">
@@ -1769,7 +1928,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
           patientName={patient.name}
           onError={(msg) => onToast(msg, 'error')}
           onTranscriptionQueued={() => onToast('Transcription ready in Editor & Scribe.', 'success')}
-          onUploadClick={() => {}}
+          onUploadClick={openUploadPicker}
           uploadDisabled={status === AppStatus.UPLOADING}
         >
           {(recordingToolbar) => (
@@ -1971,7 +2130,9 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
             pendingTranscript ? (
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[10px] border border-[#E5E7EB] bg-white md:my-0 md:rounded-lg md:border-[#E5E7EB]/90">
                 <div className="shrink-0 border-b border-[#E5E7EB] px-2 py-2 sm:px-4 md:border-[#F1F5F9] md:py-2.5">
-                  <h3 className="text-[11px] font-bold text-[#1F2937] md:text-xs md:text-[#1F2937]">Generate {WORKSPACE_TEMPLATE_LABEL}</h3>
+                  <h3 className="text-[11px] font-bold text-[#1F2937] md:text-xs md:text-[#1F2937]">
+                    Generate {workspaceGenerationTemplateLabel(workspaceGenTemplateId)}
+                  </h3>
                   <p className="mt-0.5 text-[10px] text-[#6B7280] md:text-[11px] md:text-[#6B7280]">
                     {processingPatientIds.has(patient.id) ? (
                       <span className="inline-flex items-center gap-1.5">
@@ -1981,7 +2142,7 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                     ) : workspaceNoteGenerating ? (
                       <span className="inline-flex items-center gap-1.5">
                         <Loader2 className="h-3 w-3 shrink-0 animate-spin text-[#4FB6B2]" aria-hidden />
-                        Generating your Rooms Consult note…
+                        Generating your {workspaceGenerationTemplateLabel(workspaceGenTemplateId)} note…
                       </span>
                     ) : (
                       <>
@@ -2001,6 +2162,24 @@ export const PatientWorkspace: React.FC<Props> = ({ patient, onBack, onDataChang
                       </button>
                     </p>
                   ) : null}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2 md:mt-2">
+                    <label htmlFor="workspace-gen-template" className="sr-only">
+                      Note template
+                    </label>
+                    <select
+                      id="workspace-gen-template"
+                      value={workspaceGenTemplateId}
+                      onChange={(e) => setWorkspaceGenTemplateId(e.target.value)}
+                      disabled={workspaceNoteGenerating}
+                      className="max-w-[11rem] rounded-[10px] border border-[#E5E7EB] bg-[#F7F9FB] px-2 py-1 text-[10px] font-semibold text-[#1F2937] shadow-[0_1px_2px_rgba(0,0,0,0.04)] md:max-w-[14rem] md:py-1.5 md:text-xs disabled:opacity-50"
+                    >
+                      {WORKSPACE_GENERATION_TEMPLATE_OPTIONS.map((opt) => (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5 md:mt-2 md:gap-2">
                     <button
                       type="button"

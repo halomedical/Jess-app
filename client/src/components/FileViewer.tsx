@@ -17,25 +17,16 @@ function normalizeMime(mimeType: string): string {
   return (mimeType || '').split(';')[0].trim().toLowerCase();
 }
 
-/**
- * Determine if a file type can be previewed in-app.
- * Returns the type of viewer to use.
- */
 function getViewerType(
   mimeType: string,
   fileName: string
 ): 'pdf' | 'image' | 'text' | 'docx' | 'unsupported' {
   const mt = normalizeMime(mimeType);
-  const fn = (fileName || '').trim();
-  const fnLower = fn.toLowerCase();
+  const fnLower = (fileName || '').trim().toLowerCase();
 
-  // Images
   if (mt.startsWith('image/')) return 'image';
-
-  // PDFs
   if (mt === 'application/pdf' || fnLower.endsWith('.pdf')) return 'pdf';
 
-  // Word OOXML (.docx) — HTML preview via mammoth (legacy .doc is not supported here)
   const isDocxMime =
     mt === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
     mt.includes('wordprocessingml.document');
@@ -44,7 +35,6 @@ function getViewerType(
     return 'docx';
   }
 
-  // Text-based files
   if (
     mt === 'text/plain' ||
     mt === 'text/csv' ||
@@ -56,7 +46,6 @@ function getViewerType(
   )
     return 'text';
 
-  // Google Workspace files (Docs, Sheets, Slides) — export as PDF for viewer
   if (
     mt === 'application/vnd.google-apps.document' ||
     mt === 'application/vnd.google-apps.spreadsheet' ||
@@ -70,7 +59,6 @@ function getViewerType(
 export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeType, fileUrl, onClose }) => {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [textContent, setTextContent] = useState<string | null>(null);
-  const [docxHtml, setDocxHtml] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const blobUrlRef = useRef<string | null>(null);
@@ -83,7 +71,6 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
       return;
     }
 
-    // Revoke any previous blob URL before loading a new file
     if (blobUrlRef.current) {
       URL.revokeObjectURL(blobUrlRef.current);
       blobUrlRef.current = null;
@@ -96,26 +83,52 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
       setError(null);
       setBlobUrl(null);
       setTextContent(null);
-      setDocxHtml(null);
 
       try {
-        const proxyUrl = `${API_BASE}/api/drive/files/${fileId}/proxy`;
+        const encodedId = encodeURIComponent(fileId);
+
+        if (viewerType === 'docx') {
+          const pdfRes = await fetch(`${API_BASE}/api/drive/files/${encodedId}/preview-pdf`, {
+            credentials: 'include',
+          });
+          if (!pdfRes.ok) {
+            let msg = `Preview failed (${pdfRes.status})`;
+            try {
+              const j = (await pdfRes.json()) as { error?: string };
+              if (typeof j.error === 'string') msg = j.error;
+            } catch {
+              /* ignore */
+            }
+            throw new Error(msg);
+          }
+          const blob = await pdfRes.blob();
+          if (!cancelled) {
+            const url = URL.createObjectURL(blob);
+            blobUrlRef.current = url;
+            setBlobUrl(url);
+          }
+          return;
+        }
+
+        const proxyUrl = `${API_BASE}/api/drive/files/${encodedId}/proxy`;
         const res = await fetch(proxyUrl, { credentials: 'include' });
 
         if (cancelled) return;
 
         if (!res.ok) {
-          throw new Error(`Failed to load file (${res.status})`);
+          let msg = `Failed to load file (${res.status})`;
+          try {
+            const j = (await res.json()) as { error?: string };
+            if (typeof j.error === 'string') msg = j.error;
+          } catch {
+            /* ignore */
+          }
+          throw new Error(msg);
         }
 
         if (viewerType === 'text') {
           const text = await res.text();
           if (!cancelled) setTextContent(text);
-        } else if (viewerType === 'docx') {
-          const arrayBuffer = await res.arrayBuffer();
-          const { default: mammoth } = await import('mammoth');
-          const { value } = await mammoth.convertToHtml({ arrayBuffer });
-          if (!cancelled) setDocxHtml(value || '<p>(Empty document)</p>');
         } else {
           const blob = await res.blob();
           if (!cancelled) {
@@ -142,9 +155,8 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
         blobUrlRef.current = null;
       }
     };
-  }, [fileId, viewerType, fileName, mimeType]);
+  }, [fileId, viewerType]);
 
-  // Close on Escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -158,7 +170,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
       return (
         <div className="flex flex-col items-center justify-center h-full gap-4">
           <Loader2 className="w-10 h-10 text-[#4FB6B2] animate-spin" />
-          <p className="text-[#6B7280] text-sm font-medium">Loading preview...</p>
+          <p className="text-[#6B7280] text-sm font-medium">Loading preview…</p>
         </div>
       );
     }
@@ -206,7 +218,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
       );
     }
 
-    if (viewerType === 'pdf' && blobUrl) {
+    if ((viewerType === 'pdf' || viewerType === 'docx') && blobUrl) {
       return (
         <iframe
           src={blobUrl}
@@ -226,22 +238,6 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
       );
     }
 
-    if (viewerType === 'docx' && docxHtml !== null) {
-      return (
-        <div className="h-full min-h-0 overflow-auto p-4 sm:p-6">
-          <div className="mx-auto w-full max-w-[48rem] overflow-x-auto rounded-[10px] border border-[#E5E7EB] bg-[#FFFFFF] p-6 shadow-[0_1px_2px_rgba(0,0,0,0.05)] sm:p-10">
-            <div
-              className="docx-preview select-text min-w-0 text-[#1F2937] text-[0.9375rem] leading-relaxed [&_img]:h-auto [&_img]:max-w-full [&_p]:my-2 [&_p:first-child]:mt-0 [&_h1]:text-xl [&_h1]:font-bold [&_h1]:my-3 [&_h2]:text-lg [&_h2]:font-bold [&_h2]:my-2 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-2 [&_li]:my-0.5 [&_table]:my-3 [&_table]:w-full [&_table]:max-w-full [&_table]:text-sm [&_td]:border [&_td]:border-[#E5E7EB] [&_td]:p-1.5 [&_td]:align-top [&_th]:border [&_th]:border-[#E5E7EB] [&_th]:p-1.5 [&_th]:bg-[#F1F5F9] [&_th]:font-semibold [&_a]:text-[#4FB6B2] [&_a]:underline"
-              dangerouslySetInnerHTML={{ __html: docxHtml }}
-            />
-          </div>
-          <p className="mx-auto mt-4 max-w-[48rem] text-xs text-[#9CA3AF]">
-            Preview may differ slightly from Word formatting. Use “New Tab” for the original file when needed.
-          </p>
-        </div>
-      );
-    }
-
     return null;
   };
 
@@ -254,7 +250,6 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
         className="bg-white rounded-t-[12px] sm:rounded-[12px] border border-[#E5E7EB] shadow-[0_1px_2px_rgba(0,0,0,0.05)] w-full sm:w-[95vw] h-[min(92dvh,100dvh)] sm:h-[90vh] max-w-6xl max-h-[100dvh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex items-center justify-between gap-2 px-3 sm:px-5 py-3 safe-pad-t border-b border-[#E5E7EB] bg-[#F7F9FB] rounded-t-[12px] shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <FileText size={18} className="text-[#4FB6B2] shrink-0" />
@@ -280,10 +275,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
           </div>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 min-h-0 bg-[#F7F9FB]">
-          {renderContent()}
-        </div>
+        <div className="flex-1 min-h-0 bg-[#F7F9FB]">{renderContent()}</div>
       </div>
     </div>
   );

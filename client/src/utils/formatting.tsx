@@ -73,8 +73,22 @@ export function renderInlineMarkdown(text: string): React.ReactNode[] {
   });
 }
 
-/** Extract error message from any error type */
+/** Extract error message from any error type (including multi-line API / DOCX errors). */
 export function getErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
+  if (err instanceof Error) {
+    const msg = err.message.trim();
+    if (msg) return msg;
+  }
+  if (err && typeof err === 'object' && 'error' in err && typeof (err as { error: unknown }).error === 'string') {
+    return (err as { error: string }).error;
+  }
   return 'An unexpected error occurred.';
+}
+
+/** Log DOCX save failures with full detail (toast often only shows the first line). */
+export function logDocxSaveError(context: string, err: unknown): void {
+  console.error(`[DOCX] ${context}:`, err);
+  if (err instanceof Error && err.message.includes('\n')) {
+    console.error(`[DOCX] ${context} (detail):\n${err.message}`);
+  }
 }

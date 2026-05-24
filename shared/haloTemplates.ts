@@ -13,6 +13,23 @@ export const ANGIOGRAM_TEMPLATE_ID = 'angiogram';
 
 export const DEFAULT_HALO_TEMPLATE_ID = ROOMS_CONSULT_TEMPLATE_ID;
 
+/** Patient Workspace dictation → note: Rooms Consult, Report, Echo Report (matches template editor). */
+export const WORKSPACE_GENERATION_TEMPLATE_OPTIONS: { id: string; name: string }[] = [
+  { id: ROOMS_CONSULT_TEMPLATE_ID, name: 'Rooms Consult' },
+  { id: REPORT_TEMPLATE_ID, name: 'Report' },
+  { id: ECHO_TEMPLATE_ID, name: 'Echo Report' },
+];
+
+const WORKSPACE_GENERATION_TEMPLATE_IDS = new Set(WORKSPACE_GENERATION_TEMPLATE_OPTIONS.map((o) => o.id));
+
+export function isWorkspaceGenerationTemplateId(id: string): boolean {
+  return WORKSPACE_GENERATION_TEMPLATE_IDS.has(id);
+}
+
+export function workspaceGenerationTemplateLabel(id: string): string {
+  return WORKSPACE_GENERATION_TEMPLATE_OPTIONS.find((o) => o.id === id)?.name ?? 'Report';
+}
+
 /** Options shown in Settings, note editor, and scribe template picker */
 export const HALO_TEMPLATE_OPTIONS: { id: string; name: string }[] = [
   { id: ROOMS_CONSULT_TEMPLATE_ID, name: 'Rooms Consult' },
@@ -27,6 +44,8 @@ export const HALO_TEMPLATE_OPTIONS: { id: string; name: string }[] = [
  */
 export const HALO_TEMPLATE_GEMINI_GUIDES: Record<string, string> = {
   [ROOMS_CONSULT_TEMPLATE_ID]: `
+Do not output letterhead or a patient demographics table (Name, Folder number, Age, etc.) — the app adds those.
+
 Use exactly these ## sections in order:
 ## Reason for consultation / Indication
 ## History of present illness
@@ -44,17 +63,19 @@ Use exactly these ## sections in order:
 ## Clinical indication / history
 ## Technique or context (if applicable)
 ## Findings / procedure details
-## Complications (state "None" or "Not discussed")
+## Complications (only if dictated; otherwise omit)
 ## Impression / diagnosis
 ## Recommendations / follow-up
 
 Use formal report tone.`,
 
   [ECHO_TEMPLATE_ID]: `
+Do not output letterhead or practice contact blocks — the app adds letterhead automatically.
+
 Use exactly these ## sections in order (echo / cardiac ultrasound style):
 ## Study information (study type, indication if dictated)
 ## Quality / windows (if mentioned)
-## Chambers & function (including LVEF and dimensions if dictated; otherwise N/A)
+## Chambers & function (including LVEF and dimensions if dictated)
 ## Valves (stenosis/regurgitation as stated)
 ## Great vessels / other structures (if dictated)
 ## Impression
@@ -90,7 +111,7 @@ Use exactly these ## sections in order (general clinical document):
 ## Assessment / impression
 ## Plan and recommendations
 
-Use concise clinical prose. Use "N/A" or "Not discussed" only when a section truly has no information in the dictation.`;
+Use concise clinical prose. Omit sections not mentioned in the dictation — do not write "Not discussed" or "N/A".`;
 
 /** Structured guide for Gemini fallback: known templates first, then generic clinical sections. */
 export function getGeminiGuideForTemplate(templateId: string): string {

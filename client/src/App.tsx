@@ -127,12 +127,22 @@ export const App = () => {
   useEffect(() => {
     const checkSession = async () => {
       try {
-        // First verify server is reachable
         const healthCheck = await fetch('/api/health', { credentials: 'include' }).catch(() => null);
         if (!healthCheck || !healthCheck.ok) {
-          console.warn('Server health check failed - make sure server is running on port 3000');
+          const isLocal =
+            typeof window !== 'undefined' &&
+            (window.location.hostname === 'localhost' ||
+              window.location.hostname === '127.0.0.1');
+          if (isLocal) {
+            showToast(
+              'Backend not running. In the project folder run: npm run dev (API :3000 + app :5173), then open http://localhost:5173',
+              'error'
+            );
+          }
+          setIsReady(true);
+          return;
         }
-        
+
         const auth = await checkAuth();
         if (auth.signedIn) {
           setIsSignedIn(true);
@@ -154,7 +164,7 @@ export const App = () => {
       setIsReady(true);
     };
     checkSession();
-  }, []);
+  }, [refreshPatients, selectPatient, showToast]);
 
   const handleSignIn = async () => {
     setLoading(true);
@@ -515,6 +525,7 @@ export const App = () => {
             onDataChange={refreshPatients}
             onToast={showToast}
             userEmail={userEmail}
+            userSettings={userSettings}
             onOpenMobileNav={() => setMobileSidebarOpen(true)}
           />
         ) : (
@@ -566,10 +577,10 @@ export const App = () => {
 
       {/* CREATE PATIENT MODAL */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-[#1F2937]/25 backdrop-blur-[2px] p-0 sm:p-4 safe-pad-b">
-          <div className="bg-white rounded-t-[12px] sm:rounded-[12px] border border-[#E5E7EB] shadow-[0_1px_2px_rgba(0,0,0,0.05)] w-full max-w-lg max-h-[90dvh] overflow-y-auto p-5 sm:p-6 sm:m-4">
-            <div className="flex justify-between items-center mb-5">
-              <h2 className="text-lg sm:text-xl font-bold text-[#1F2937] flex items-center gap-2">
+        <div className="fixed inset-0 z-50 flex h-[100dvh] max-h-[100dvh] flex-col justify-end overflow-hidden bg-[#1F2937]/25 backdrop-blur-[2px] sm:justify-center sm:p-4 safe-pad-b">
+          <div className="flex max-h-[min(100dvh,100%)] min-h-0 w-full flex-col overflow-hidden rounded-t-[12px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05)] sm:mx-auto sm:max-h-[min(92dvh,36rem)] sm:max-w-lg sm:rounded-[12px]">
+            <div className="flex shrink-0 items-center justify-between border-b border-[#E5E7EB] px-5 py-4 sm:px-6">
+              <h2 className="flex items-center gap-2 text-lg font-bold text-[#1F2937] sm:text-xl">
                 <UserPlus className="text-[#4FB6B2]" size={22} /> New Patient Folder
               </h2>
               <button
@@ -577,11 +588,12 @@ export const App = () => {
                   setStickerCameraOpen(false);
                   setShowCreateModal(false);
                 }}
-                className="text-[#9CA3AF] hover:text-[#1F2937] p-1 rounded-full hover:bg-[#F1F5F9] transition"
+                className="rounded-full p-1 text-[#9CA3AF] transition hover:bg-[#F1F5F9] hover:text-[#1F2937]"
               >
                 <X size={20} />
               </button>
             </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-6 sm:py-5">
             <form onSubmit={submitCreatePatient}>
               <div className="space-y-5">
                 <div className="rounded-[12px] border border-[#E5E7EB] bg-[#F7F9FB] p-4">
@@ -874,6 +886,7 @@ export const App = () => {
                 </div>
               </div>
             </form>
+            </div>
           </div>
         </div>
       )}

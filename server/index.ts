@@ -71,13 +71,13 @@ const authLimiter = rateLimit({
 app.use(globalLimiter);
 
 const devCorsOrigins = [
-  config.clientUrl,
+  'http://jess.halo.africa',
+  'https://jess.halo.africa',
   'http://localhost:5173',
-  'http://127.0.0.1:5173',
   'http://localhost:3000',
-  'http://127.0.0.1:3000',
+  'https://jess-app1-cd517b2c44fc.herokuapp.com',
 ];
-const corsOrigins = config.isProduction ? [config.clientUrl] : [...new Set(devCorsOrigins)];
+const corsOrigins = config.isProduction ? [...new Set(devCorsOrigins)] : [...new Set(devCorsOrigins)];
 
 app.use(
   cors({

@@ -37,7 +37,7 @@ interface NoteEditorProps {
 }
 
 const RICH_NOTE_PREVIEW_CLASS =
-  'rich-note-preview select-text min-w-0 text-[10px] leading-snug text-[#1F2937] sm:text-[11px] sm:leading-normal [&_#rich-doctor-letterhead]:font-serif [&_.clinical-note-body]:font-sans [&_table]:w-full [&_table]:border-collapse [&_td]:align-top [&_p]:my-0 [&_a]:text-[#1F2937] [&_a]:underline';
+  'rich-note-preview note-preview-content select-text min-w-0 max-w-full overflow-x-hidden text-sm leading-normal text-[#1F2937] sm:text-[11px] sm:leading-normal [&_#rich-doctor-letterhead]:font-serif [&_.clinical-note-body]:font-sans [&_table]:w-full [&_table]:max-w-full [&_table]:border-collapse [&_td]:align-top [&_img]:max-w-full [&_p]:my-0 [&_a]:text-[#1F2937] [&_a]:underline';
 
 export const NoteEditor: React.FC<NoteEditorProps> = ({
   notes,
@@ -64,6 +64,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     () => (activeNote ? noteHasRichLetterhead(activeNote.content ?? '') : false),
     [activeNote]
   );
+  /** HTML preview reflows on narrow screens; PDF iframes cause horizontal scroll on iOS. */
+  const useHtmlPreview = useMemo(() => {
+    if (!activeNote) return false;
+    const c = activeNote.content ?? '';
+    return isRichHtmlNote || /<(?:table|div|p)\b/i.test(c);
+  }, [activeNote, isRichHtmlNote]);
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('preview');
   const editRef = useRef<HTMLDivElement>(null);
   const lastSyncedNoteIdRef = useRef<string | null>(null);
@@ -91,7 +97,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   }
 
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-[10px] border border-[#E5E7EB] bg-white md:rounded-lg md:border-[#E5E7EB]/90">
+    <div className="flex min-h-0 w-full max-w-full flex-1 flex-col overflow-x-hidden rounded-[10px] border border-[#E5E7EB] bg-white md:rounded-lg md:border-[#E5E7EB]/90">
       <div className="flex min-w-0 shrink-0 flex-col gap-1 border-b border-[#E5E7EB] px-1.5 py-1 md:border-[#F1F5F9] md:px-2 md:py-1.5 sm:px-3 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 md:gap-2">
           <span className="hidden text-[10px] font-bold uppercase tracking-wide text-[#9CA3AF] sm:inline">Note</span>
@@ -154,9 +160,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       )}
 
       {viewMode === 'preview' ? (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#F7F9FB] px-1 py-0.5 md:px-2 md:py-2 sm:px-3">
-          {isRichHtmlNote ? (
-            <div className="mx-auto h-full min-h-0 w-full max-w-[52rem] flex-1 overflow-auto rounded-[10px] border border-[#E5E7EB] bg-white p-2 shadow-sm sm:p-6 md:p-8">
+        <div className="flex min-h-0 max-w-full flex-1 flex-col overflow-x-hidden bg-[#F7F9FB] px-1 py-0.5 md:px-2 md:py-2 sm:px-3">
+          {useHtmlPreview ? (
+            <div className="note-preview-panel mx-auto min-h-0 w-full max-w-full flex-1 rounded-[10px] border border-[#E5E7EB] bg-white p-2 shadow-sm sm:max-w-[52rem] sm:p-6 md:p-8">
               <div
                 className={RICH_NOTE_PREVIEW_CLASS}
                 dangerouslySetInnerHTML={{ __html: activeNote.content ?? '' }}
@@ -179,18 +185,14 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               </button>
             </div>
           ) : previewPdfUrl ? (
-            <div className="relative mx-auto flex h-full min-h-[50dvh] w-full max-w-[52rem] flex-1 flex-col overflow-hidden rounded-[10px] border border-[#E5E7EB] bg-[#525659] shadow-sm md:min-h-0">
+            <div className="note-preview-panel relative mx-auto flex min-h-0 w-full max-w-full flex-1 flex-col rounded-[10px] border border-[#E5E7EB] bg-white shadow-sm sm:max-w-[52rem]">
               {previewPdfLoading ? (
                 <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-white/80 backdrop-blur-[1px]">
                   <Loader2 className="h-7 w-7 animate-spin text-[#4FB6B2]" aria-hidden />
                   <span className="text-xs font-medium text-[#6B7280]">Updating preview…</span>
                 </div>
               ) : null}
-              <iframe
-                title="Note PDF preview"
-                src={`${previewPdfUrl}#view=FitH`}
-                className="h-full min-h-[48dvh] w-full flex-1 border-0 bg-white md:min-h-0"
-              />
+              <iframe title="Note PDF preview" src={previewPdfUrl} className="note-preview-pdf-frame" />
             </div>
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center py-8 text-[#9CA3AF]">

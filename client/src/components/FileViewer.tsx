@@ -220,11 +220,9 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
 
     if ((viewerType === 'pdf' || viewerType === 'docx') && blobUrl) {
       return (
-        <iframe
-          src={blobUrl}
-          title={fileName}
-          className="h-full min-h-0 w-full rounded-b-xl border-0"
-        />
+        <div className="note-preview-panel flex h-full min-h-0 w-full max-w-full flex-1 flex-col rounded-b-xl">
+          <iframe src={blobUrl} title={fileName} className="note-preview-pdf-frame" />
+        </div>
       );
     }
 
@@ -247,7 +245,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-t-[12px] sm:rounded-[12px] border border-[#E5E7EB] shadow-[0_1px_2px_rgba(0,0,0,0.05)] w-full sm:w-[95vw] h-[min(92dvh,100dvh)] sm:h-[90vh] max-w-6xl max-h-[100dvh] flex flex-col overflow-hidden"
+        className="box-border flex h-[min(92dvh,100dvh)] max-h-[100dvh] w-full max-w-full flex-col overflow-hidden rounded-t-[12px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05)] sm:h-[90vh] sm:max-w-6xl sm:rounded-[12px] sm:w-[95vw]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-2 px-3 sm:px-5 py-3 safe-pad-t border-b border-[#E5E7EB] bg-[#F7F9FB] rounded-t-[12px] shrink-0">
@@ -275,7 +273,9 @@ export const FileViewer: React.FC<FileViewerProps> = ({ fileId, fileName, mimeTy
           </div>
         </div>
 
-        <div className="flex-1 min-h-0 bg-[#F7F9FB]">{renderContent()}</div>
+        <div className="box-border flex min-h-0 flex-1 w-full max-w-full flex-col overflow-x-hidden bg-[#F7F9FB]">
+          {renderContent()}
+        </div>
       </div>
     </div>
   );

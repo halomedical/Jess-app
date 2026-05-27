@@ -738,66 +738,6 @@ export const App = () => {
                 </div>
 
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#374151] mb-3">Hospital ID &amp; Billing</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-semibold text-[#4B5563] mb-1.5">ID / hospital number</label>
-                      <input
-                        type="text"
-                        value={newPatientIdNumber}
-                        onChange={(e) => setNewPatientIdNumber(e.target.value)}
-                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-[#4B5563] mb-1.5">Folder / file number</label>
-                      <input
-                        type="text"
-                        value={newPatientFolderNumber}
-                        onChange={(e) => setNewPatientFolderNumber(e.target.value)}
-                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-[#4B5563] mb-1.5">Ward</label>
-                      <input
-                        type="text"
-                        value={newPatientWard}
-                        onChange={(e) => setNewPatientWard(e.target.value)}
-                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-[#4B5563] mb-1.5">Medical aid / insurer</label>
-                      <input
-                        type="text"
-                        value={newPatientMedicalAidName}
-                        onChange={(e) => setNewPatientMedicalAidName(e.target.value)}
-                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-[#4B5563] mb-1.5">Plan / package</label>
-                      <input
-                        type="text"
-                        value={newPatientMedicalAidPackage}
-                        onChange={(e) => setNewPatientMedicalAidPackage(e.target.value)}
-                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-[#4B5563] mb-1.5">Member number</label>
-                      <input
-                        type="text"
-                        value={newPatientMedicalAidMemberNumber}
-                        onChange={(e) => setNewPatientMedicalAidMemberNumber(e.target.value)}
-                        className="w-full min-h-[48px] px-4 py-3 rounded-[12px] border border-[#E5E7EB] bg-white text-base text-[#1F2937] focus:border-[#4FB6B2] focus:ring-2 focus:ring-[#E6F4F3] outline-none transition"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div>
                   <label className="block text-sm font-semibold text-[#4B5563] mb-1.5">Scheme phone (authorisation)</label>
                   <input
                     type="tel"

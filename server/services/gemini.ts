@@ -4,12 +4,7 @@ import { getGeminiGuideForTemplate } from '../../shared/haloTemplates';
 import { haloTemplateFallbackPrompt } from '../utils/prompts';
 import { createHash } from 'crypto';
 
-// Using gemini-flash-latest - this model has free tier access (15 RPM)
-// Alternative: 'gemini-pro-latest' (also has free tier, but slower)
-const TEXT_MODEL = 'gemini-flash-latest';
-const VISION_MODEL = 'gemini-flash-latest';
-const MAX_RETRIES = 2;
-const BASE_RETRY_DELAY_MS = 1200;
+const RETRY_DELAYS_MS = [0, 1000, 2000, 4000] as const;
 /** Timeout for Gemini API calls (tuned to fail a bit sooner when the API is stuck) */
 export const GEMINI_TIMEOUT_MS = 75_000;
 
@@ -32,35 +27,176 @@ function getGenAI(): GoogleGenerativeAI {
   return new GoogleGenerativeAI(config.geminiApiKey);
 }
 
-/**
- * Retry wrapper for Gemini API calls with exponential backoff.
- */
-export async function withRetry<T>(fn: () => Promise<T>, maxRetries = MAX_RETRIES, delay = BASE_RETRY_DELAY_MS): Promise<T> {
-  let lastError: Error | undefined;
-  for (let i = 0; i <= maxRetries; i++) {
-    try {
-      return await fn();
-    } catch (error: unknown) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      lastError = err;
-      const m = (err.message || '').toLowerCase();
-      const isRetryable =
-        m.includes('429') ||
-        m.includes('503') ||
-        m.includes('500') ||
-        m.includes('resource exhausted') ||
-        m.includes('overloaded') ||
-        m.includes('econnreset') ||
-        m.includes('fetch failed') ||
-        m.includes('too many requests');
-      if (isRetryable && i < maxRetries) {
-        await new Promise((r) => setTimeout(r, delay * Math.pow(2, i)));
-        continue;
+function getModelChain(): { model: string; fallbackModel?: string } {
+  const model = (config.geminiModel || '').trim();
+  const fallbackModel = (config.geminiFallbackModel || '').trim();
+  if (!model) {
+    // Backward compatible default if env missing.
+    return { model: 'gemini-2.5-flash', fallbackModel: fallbackModel || undefined };
+  }
+  return { model, fallbackModel: fallbackModel || undefined };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function classifyRetryableGeminiError(err: unknown): { retryable: boolean; reason: string } {
+  const msg = err instanceof Error ? err.message : String(err);
+  const low = (msg || '').toLowerCase();
+  // Required retry signals
+  const keywordHit =
+    low.includes('overloaded') ||
+    low.includes('high demand') ||
+    low.includes('unavailable') ||
+    low.includes('unavailable:') ||
+    low.includes('unavailable.');
+  const statusHit = /\b503\b/.test(low) || low.includes('[503') || low.includes('service unavailable');
+  // Common transient/network signals (keep conservative)
+  const transientHit =
+    low.includes('econnreset') ||
+    low.includes('fetch failed') ||
+    low.includes('socket hang up') ||
+    low.includes('timed out') ||
+    low.includes('timeout') ||
+    low.includes('429') ||
+    low.includes('too many requests') ||
+    low.includes('resource exhausted');
+  const retryable = keywordHit || statusHit || transientHit || low.includes('unavailable');
+  const reason = keywordHit
+    ? 'keyword'
+    : statusHit
+      ? 'status'
+      : transientHit
+        ? 'transient'
+        : 'unknown';
+  return { retryable, reason };
+}
+
+function extractUsageMetadata(result: any): {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+} | undefined {
+  const usage = result?.response?.usageMetadata ?? result?.usageMetadata;
+  if (!usage || typeof usage !== 'object') return undefined;
+  const inputTokens =
+    typeof usage.promptTokenCount === 'number'
+      ? usage.promptTokenCount
+      : typeof usage.inputTokenCount === 'number'
+        ? usage.inputTokenCount
+        : undefined;
+  const outputTokens =
+    typeof usage.candidatesTokenCount === 'number'
+      ? usage.candidatesTokenCount
+      : typeof usage.outputTokenCount === 'number'
+        ? usage.outputTokenCount
+        : undefined;
+  const totalTokens =
+    typeof usage.totalTokenCount === 'number'
+      ? usage.totalTokenCount
+      : inputTokens != null && outputTokens != null
+        ? inputTokens + outputTokens
+        : undefined;
+  if (inputTokens == null && outputTokens == null && totalTokens == null) return undefined;
+  return { inputTokens, outputTokens, totalTokens };
+}
+
+type GeminiLogEvent = {
+  event: string;
+  kind: string;
+  model: string;
+  fallbackModel?: string;
+  fallbackUsed: boolean;
+  retries: number;
+  durationMs: number;
+  status: 'success' | 'failure';
+  retryReason?: string;
+  error?: string;
+  usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+};
+
+function logGeminiEvent(e: GeminiLogEvent): void {
+  // Heroku-friendly: single-line JSON
+  const line = JSON.stringify(e);
+  if (e.status === 'success') console.log(line);
+  else console.error(line);
+}
+
+async function generateWithRetryAndFallback<T>(params: {
+  kind: string;
+  run: (modelName: string) => Promise<{ value: T; usage?: any }>;
+}): Promise<T> {
+  const started = Date.now();
+  const { model, fallbackModel } = getModelChain();
+  const models = [model, ...(fallbackModel ? [fallbackModel] : [])];
+
+  let lastErr: unknown = null;
+  let retryReason: string | undefined;
+  let totalRetries = 0;
+  let fallbackUsed = false;
+
+  for (let modelIdx = 0; modelIdx < models.length; modelIdx++) {
+    const modelName = models[modelIdx]!;
+    fallbackUsed = modelIdx > 0;
+    retryReason = undefined;
+    for (let attemptIdx = 0; attemptIdx < RETRY_DELAYS_MS.length; attemptIdx++) {
+      if (attemptIdx > 0) {
+        totalRetries += 1;
+        await delay(RETRY_DELAYS_MS[attemptIdx]);
       }
-      break;
+      try {
+        const out = await params.run(modelName);
+        const durationMs = Date.now() - started;
+        logGeminiEvent({
+          event: 'gemini_request',
+          kind: params.kind,
+          model,
+          fallbackModel: fallbackModel || undefined,
+          fallbackUsed,
+          retries: totalRetries,
+          durationMs,
+          status: 'success',
+          retryReason,
+          usage: extractUsageMetadata(out.usage),
+        });
+        return out.value;
+      } catch (err) {
+        lastErr = err;
+        const { retryable, reason } = classifyRetryableGeminiError(err);
+        retryReason = reason;
+        // Retry only within the current model; after final attempt, fall through to next model.
+        if (!retryable || attemptIdx === RETRY_DELAYS_MS.length - 1) break;
+      }
     }
   }
-  throw lastError;
+
+  const durationMs = Date.now() - started;
+  const message = lastErr instanceof Error ? lastErr.message : String(lastErr);
+  logGeminiEvent({
+    event: 'gemini_request',
+    kind: params.kind,
+    model,
+    fallbackModel: fallbackModel || undefined,
+    fallbackUsed,
+    retries: totalRetries,
+    durationMs,
+    status: 'failure',
+    retryReason,
+    error: message?.slice(0, 1500),
+  });
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
+/**
+ * Retry wrapper kept for backward compatibility.
+ * Prefer the centralized retry/fallback in `generateWithRetryAndFallback`.
+ */
+export async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  return generateWithRetryAndFallback({
+    kind: 'legacy_withRetry',
+    run: async (_modelName) => ({ value: await fn() }),
+  });
 }
 
 /**
@@ -119,20 +255,23 @@ const geminiRequestOptions = { timeout: GEMINI_TIMEOUT_MS };
  */
 export async function generateText(prompt: string): Promise<string> {
   const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: TEXT_MODEL });
-  const result = await withRetry(() =>
-    model.generateContent(
-      {
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.35,
-          maxOutputTokens: 16384,
+  return generateWithRetryAndFallback({
+    kind: 'generate_text',
+    run: async (modelName) => {
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(
+        {
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.35,
+            maxOutputTokens: 16384,
+          },
         },
-      },
-      geminiRequestOptions
-    )
-  );
-  return extractTextFromGenerateContentResult(result);
+        geminiRequestOptions
+      );
+      return { value: extractTextFromGenerateContentResult(result), usage: result };
+    },
+  });
 }
 
 /**
@@ -174,10 +313,24 @@ export async function generateClinicalNoteFromTranscript(
  */
 export async function* generateTextStream(prompt: string): AsyncGenerator<string> {
   const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: TEXT_MODEL });
-  const result = await withRetry(() =>
-    model.generateContentStream(prompt, geminiRequestOptions)
-  );
+  const { model } = getModelChain();
+  // Streaming: we retry per the same schedule but do NOT attempt fallback mid-stream.
+  const chosenModel = model;
+  let result: any;
+  let lastErr: unknown = null;
+  for (let attemptIdx = 0; attemptIdx < RETRY_DELAYS_MS.length; attemptIdx++) {
+    if (attemptIdx > 0) await delay(RETRY_DELAYS_MS[attemptIdx]);
+    try {
+      const m = genAI.getGenerativeModel({ model: chosenModel });
+      result = await m.generateContentStream(prompt, geminiRequestOptions);
+      break;
+    } catch (e) {
+      lastErr = e;
+      const { retryable } = classifyRetryableGeminiError(e);
+      if (!retryable || attemptIdx === RETRY_DELAYS_MS.length - 1) throw e;
+    }
+  }
+  if (!result && lastErr) throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
   for await (const chunk of result.stream) {
     const text = chunk.text?.();
     if (text) yield text;
@@ -189,26 +342,29 @@ export async function* generateTextStream(prompt: string): AsyncGenerator<string
  */
 export async function analyzeImage(prompt: string, base64Data: string, mimeType: string): Promise<string> {
   const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: VISION_MODEL });
   const data = base64Data.replace(/\s/g, '');
-  const result = await withRetry(() =>
-    model.generateContent(
-      {
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: prompt }, { inlineData: { mimeType, data } }],
+  return generateWithRetryAndFallback({
+    kind: 'analyze_image',
+    run: async (modelName) => {
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(
+        {
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: prompt }, { inlineData: { mimeType, data } }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 8192,
           },
-        ],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 8192,
         },
-      },
-      geminiRequestOptions
-    )
-  );
-  return extractTextFromGenerateContentResult(result);
+        geminiRequestOptions
+      );
+      return { value: extractTextFromGenerateContentResult(result), usage: result };
+    },
+  });
 }
 
 /**
@@ -216,28 +372,28 @@ export async function analyzeImage(prompt: string, base64Data: string, mimeType:
  */
 export async function transcribeAudio(prompt: string, base64Data: string, mimeType: string): Promise<string> {
   const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: TEXT_MODEL });
   const data = base64Data.replace(/\s/g, '');
-  const result = await withRetry(() =>
-    model.generateContent(
-      {
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              { text: prompt },
-              { inlineData: { mimeType, data } },
-            ],
+  return generateWithRetryAndFallback({
+    kind: 'transcribe_audio',
+    run: async (modelName) => {
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(
+        {
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: prompt }, { inlineData: { mimeType, data } }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.1,
+            // Dictation rarely needs huge completions; lower cap reduces time-to-first-token and total latency.
+            maxOutputTokens: 8192,
           },
-        ],
-        generationConfig: {
-          temperature: 0.1,
-          // Dictation rarely needs huge completions; lower cap reduces time-to-first-token and total latency.
-          maxOutputTokens: 8192,
         },
-      },
-      geminiRequestOptions
-    )
-  );
-  return extractTextFromGenerateContentResult(result);
+        geminiRequestOptions
+      );
+      return { value: extractTextFromGenerateContentResult(result), usage: result };
+    },
+  });
 }

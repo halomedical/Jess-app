@@ -90,6 +90,18 @@ const WORKSPACE_TAB_STORAGE_PREFIX = 'halo_patientWorkspaceTab_v1:';
 
 type WorkspaceTab = 'overview' | 'notes' | 'chat';
 
+async function persistWorkspaceDraftNow(params: {
+  patientId: string;
+  draft: PatientEditorDraft | null;
+}): Promise<void> {
+  if (!params.draft) return;
+  try {
+    await saveWorkspaceDraft(params.patientId, { savedAt: Date.now(), draft: params.draft });
+  } catch {
+    // Best-effort: transcript must never be blocked by transient Drive/API issues.
+  }
+}
+
 function readStoredWorkspaceTab(patientId: string): WorkspaceTab {
   try {
     const v = sessionStorage.getItem(`${WORKSPACE_TAB_STORAGE_PREFIX}${patientId}`);
@@ -755,6 +767,10 @@ export const PatientWorkspace: React.FC<Props> = ({
           return;
         }
 
+        await persistWorkspaceDraftNow({
+          patientId: patient.id,
+          draft: latestWorkspaceRef.current,
+        });
         const raw = await generateClinicalNoteWithGemini({
           transcriptionText: extracted,
           chartReference: buildPatientDemographicsForNoteInput(patient),
@@ -862,6 +878,10 @@ export const PatientWorkspace: React.FC<Props> = ({
             })).trim();
             if (extracted) {
               setUploadMessage('Generating Echo Report note…');
+                await persistWorkspaceDraftNow({
+                  patientId: patient.id,
+                  draft: latestWorkspaceRef.current,
+                });
               const raw = await generateClinicalNoteWithGemini({
                 transcriptionText: extracted,
                 chartReference: buildPatientDemographicsForNoteInput(patient),
@@ -1444,6 +1464,18 @@ export const PatientWorkspace: React.FC<Props> = ({
       const templateForRun = targetNote?.template_id || workspaceGenTemplateIdRef.current;
       const chartReference = buildPatientDemographicsForNoteInput(generationPatient);
       try {
+        await persistWorkspaceDraftNow({
+          patientId: generationPatientId,
+          draft: latestWorkspaceRef.current
+            ? { ...latestWorkspaceRef.current, pendingTranscript: rawDictation }
+            : {
+                pendingTranscript: rawDictation,
+                notes: notesRef.current,
+                activeNoteIndex,
+                selectedTemplatesForGenerate: [workspaceGenTemplateIdRef.current],
+                templateId: workspaceGenTemplateIdRef.current,
+              },
+        });
         const raw = await generateClinicalNoteWithGemini({
           transcriptionText: dictationForModel,
           chartReference,

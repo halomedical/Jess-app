@@ -98,11 +98,28 @@ router.post('/generate-note', async (req: Request, res: Response) => {
 
     res.json({ success: true, fileId, name: finalFileName });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Note generation failed.';
-    console.error('Halo generate-note error:', message);
+    const raw = err instanceof Error ? err.message : 'Note generation failed.';
+    console.error('Halo generate-note error:', raw);
     if (err instanceof Error && err.stack) console.error(err.stack);
-    const status = message.includes('502') ? 502 : message.includes('Invalid') ? 400 : 500;
-    res.status(status).json({ error: message });
+
+    const low = (raw || '').toLowerCase();
+    const isBusy =
+      low.includes('503') ||
+      low.includes('overloaded') ||
+      low.includes('high demand') ||
+      low.includes('unavailable') ||
+      low.includes('unavailable.');
+    if (isBusy) {
+      res.status(503).json({
+        error:
+          'The AI service is temporarily busy. Your transcript has been saved successfully. Please try generating the note again in a few minutes.',
+      });
+      return;
+    }
+
+    const status = raw.includes('502') ? 502 : raw.includes('Invalid') ? 400 : 500;
+    const safe = raw.length > 280 ? `${raw.slice(0, 280)}…` : raw;
+    res.status(status).json({ error: safe || 'Note generation failed.' });
   }
 });
 

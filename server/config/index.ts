@@ -21,6 +21,10 @@ export const config = {
 
   // AI
   geminiApiKey: process.env.GEMINI_API_KEY!,
+  /** Primary Gemini model for all server-side generation. */
+  geminiModel: (process.env.GEMINI_MODEL || 'gemini-2.5-flash').trim(),
+  /** Optional fallback model used when the primary model is temporarily unavailable/overloaded. */
+  geminiFallbackModel: (process.env.GEMINI_FALLBACK_MODEL || '').trim(),
   deepgramApiKey: process.env.DEEPGRAM_API_KEY || '',
   /** Prerecorded model; nova-2-medical is typically faster than nova-3-medical (override for max accuracy). */
   deepgramModel: process.env.DEEPGRAM_MODEL || 'nova-2-medical',

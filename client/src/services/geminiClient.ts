@@ -1,9 +1,12 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { buildClientClinicalNotePrompt } from '../../../shared/buildClientClinicalNotePrompt';
 
-/** Match server `gemini-flash-latest` for comparable quality and quotas. */
-const TEXT_MODEL = 'gemini-flash-latest';
+const PRIMARY_MODEL =
+  ((import.meta.env.VITE_GEMINI_MODEL as string | undefined) || 'gemini-2.5-flash').trim();
+const FALLBACK_MODEL =
+  ((import.meta.env.VITE_GEMINI_FALLBACK_MODEL as string | undefined) || '').trim();
 const CLIENT_GENERATE_TIMEOUT_MS = 120_000;
+const RETRY_DELAYS_MS = [0, 1000, 2000, 4000] as const;
 
 function getGeminiApiKey(): string {
   const k = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
@@ -45,6 +48,15 @@ function friendlyGeminiError(err: unknown): string {
   if (err instanceof Error && err.name === 'AbortError') {
     return 'Note generation timed out. Tap Generate note to retry.';
   }
+  if (
+    low.includes('503') ||
+    low.includes('overloaded') ||
+    low.includes('high demand') ||
+    low.includes('unavailable') ||
+    low.includes('service unavailable')
+  ) {
+    return 'The AI service is temporarily busy. Your transcript has been saved successfully. Please try generating the note again in a few minutes.';
+  }
   if (low.includes('resource exhausted') || low.includes('429') || low.includes('quota')) {
     return 'Gemini API quota exceeded. Wait a minute and try again.';
   }
@@ -55,6 +67,24 @@ function friendlyGeminiError(err: unknown): string {
     return 'Network error while calling Gemini. Check your connection and try again.';
   }
   return msg.length > 280 ? `${msg.slice(0, 280)}…` : msg;
+}
+
+function classifyRetryable(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  const low = (msg || '').toLowerCase();
+  return (
+    low.includes('503') ||
+    low.includes('overloaded') ||
+    low.includes('high demand') ||
+    low.includes('unavailable') ||
+    low.includes('service unavailable') ||
+    low.includes('fetch failed') ||
+    low.includes('network') ||
+    low.includes('econnreset') ||
+    low.includes('429') ||
+    low.includes('resource exhausted') ||
+    low.includes('too many requests')
+  );
 }
 
 function combineAbortSignals(outer: AbortSignal, inner: AbortSignal): AbortSignal {
@@ -91,7 +121,6 @@ export async function generateClinicalNoteWithGemini(params: {
     params.chartReference
   );
   const genAI = new GoogleGenerativeAI(getGeminiApiKey());
-  const model = genAI.getGenerativeModel({ model: TEXT_MODEL });
 
   const deadline = new AbortController();
   const tid = window.setTimeout(() => deadline.abort(), CLIENT_GENERATE_TIMEOUT_MS);
@@ -100,18 +129,35 @@ export async function generateClinicalNoteWithGemini(params: {
       ? combineAbortSignals(params.signal, deadline.signal)
       : deadline.signal;
 
+  const models = [PRIMARY_MODEL, ...(FALLBACK_MODEL ? [FALLBACK_MODEL] : [])].filter(Boolean);
+  let lastErr: unknown = null;
   try {
-    const result = await model.generateContent(
-      {
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.35,
-          maxOutputTokens: 16384,
-        },
-      },
-      { signal }
-    );
-    return extractTextFromGenerateContentResult(result);
+    for (let modelIdx = 0; modelIdx < models.length; modelIdx++) {
+      const modelName = models[modelIdx]!;
+      const model = genAI.getGenerativeModel({ model: modelName });
+      for (let attemptIdx = 0; attemptIdx < RETRY_DELAYS_MS.length; attemptIdx++) {
+        if (attemptIdx > 0) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attemptIdx]));
+        }
+        try {
+          const result = await model.generateContent(
+            {
+              contents: [{ role: 'user', parts: [{ text: prompt }] }],
+              generationConfig: {
+                temperature: 0.35,
+                maxOutputTokens: 16384,
+              },
+            },
+            { signal }
+          );
+          return extractTextFromGenerateContentResult(result);
+        } catch (err) {
+          lastErr = err;
+          if (!classifyRetryable(err) || attemptIdx === RETRY_DELAYS_MS.length - 1) break;
+        }
+      }
+    }
+    throw lastErr ?? new Error('Gemini request failed.');
   } catch (err) {
     throw new Error(friendlyGeminiError(err));
   } finally {

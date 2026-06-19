@@ -3,6 +3,7 @@ import { getLocalClinicalNoteTemplate } from './clinicalNoteTemplates';
 import { humanizeFieldKey } from './clinicalNoteFieldParse';
 import { getGeminiGuideForTemplate, REPORT_TEMPLATE_ID, ROOMS_CONSULT_TEMPLATE_ID } from './haloTemplates';
 import { ROOMS_MODEL_OUTPUT_FIELD_KEYS } from './parseRoomsConsultNoteContent';
+import { buildMedicationGlossaryPromptBlock } from './cardiologyMedicationGlossary';
 
 function buildTemplateRulesJson(template: ClinicalNoteTemplateDefinition): string {
   return JSON.stringify(
@@ -59,6 +60,7 @@ function buildFieldBasedPrompt(
   const chart = (chartReference ?? '').trim();
   const keys = getOutputFieldKeys(template);
   const outputFormat = buildJsonOutputFormat(keys);
+  const medicationGlossary = buildMedicationGlossaryPromptBlock();
 
   let templateNotes = '';
   if (template.template_id === REPORT_TEMPLATE_ID) {
@@ -96,9 +98,11 @@ TASK: Extract information from the dictation below and return a JSON object stri
 ${templateNotes ? `Template notes: ${templateNotes}\n` : ''}
 RULES:
 - Populate each JSON key with dictated content when present in the transcript; omit or use "" if not mentioned.
-- Do not invent diagnoses, measurements, medications, or dates.
+- Use the medication glossary to correct obvious medication spelling/transcription errors, but do not invent diagnoses, measurements, medications, or dates.
 - Never output Markdown headings, bold field labels, practice letterhead, patient demographic tables, ---FIELD--- tags, or text outside the JSON object.
 - ${BLANK_WHEN_UNMENTIONED_RULE}
+
+${medicationGlossary}
 
 TEMPLATE FIELD RULES (JSON structure — follow each key's description):
 ${templateRules}
@@ -129,6 +133,7 @@ export function buildClientClinicalNotePrompt(
   const guide = getGeminiGuideForTemplate(templateId);
   const dictation = (transcriptionText ?? '').trim();
   const chart = (chartReference ?? '').trim();
+  const medicationGlossary = buildMedicationGlossaryPromptBlock();
   return `
 You are a medical scribe.
 
@@ -137,9 +142,12 @@ TASK: Extract information from the following dictation and return ONLY a valid J
 RULES:
 - Only include content supported by the dictation. Omit sections not mentioned.
 - Do not write "Not discussed" or "N/A".
-- Do not invent clinical facts.
+- Use the medication glossary to correct obvious medication spelling/transcription errors.
+- Do not invent clinical facts or medications.
 - Do not output practice letterhead or duplicate patient demographic tables.
 - Do not use ---FIELD--- tags or markdown code fences.
+
+${medicationGlossary}
 
 Template key: ${templateId}
 

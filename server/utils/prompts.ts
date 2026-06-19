@@ -2,6 +2,8 @@
  * Centralized AI prompt templates for all Gemini interactions.
  */
 
+import { buildMedicationGlossaryPromptBlock } from '../../shared/cardiologyMedicationGlossary';
+
 export const MAX_CONTENT_LENGTH = 5000;
 
 export function summaryPrompt(patientName: string, fileContext: string): string {
@@ -98,13 +100,16 @@ export function soapNotePrompt(transcript: string, customTemplate?: string): str
 
 /** Gemini fallback when Halo/Python generate_note fails — matches app template_id keys. */
 export function haloTemplateFallbackPrompt(transcript: string, templateId: string, structureGuide: string): string {
+  const medicationGlossary = buildMedicationGlossaryPromptBlock();
   return `
 You are a medical scribe. Convert the dictation into a clinical document that strictly follows the section structure below.
 Use Markdown: ## for each main section heading, **bold** for inline labels where helpful.
 Only include content supported by the dictation; use "N/A" or "Not discussed" for empty sections.
-Do not invent clinical facts.
+Use the medication glossary to correct obvious medication spelling/transcription errors. Do not invent clinical facts or medications.
 
 If the input contains a "Patient identifiers" block (from the chart), use it only as reference data for names, dates, and visit details inside the clinical sections. Do not output two separate patient demographic headers before the first ## section: include at most one concise patient identification block at the top (or none if the section structure below already embeds demographics), and never repeat the same demographics in a second block with different labels.
+
+${medicationGlossary}
 
 Template key (for context): ${templateId}
 
@@ -117,7 +122,12 @@ Clinical input (chart identifiers may appear first, then dictation or note conte
 
 /** Short prompt for /transcribe only — faster than SOAP-style instructions on Gemini. */
 export function fastTranscriptionPrompt(): string {
-  return 'Verbatim transcript: spoken words only, plain clinical English, normal punctuation. No headings, labels, or commentary.';
+  const medicationGlossary = buildMedicationGlossaryPromptBlock();
+  return `Verbatim transcript: spoken words only, plain clinical English, normal punctuation. No headings, labels, or commentary.
+
+${medicationGlossary}
+
+When the audio clearly contains a medication from the glossary, transcribe it using the exact glossary spelling.`;
 }
 
 export function geminiTranscriptionPrompt(customTemplate?: string): string {

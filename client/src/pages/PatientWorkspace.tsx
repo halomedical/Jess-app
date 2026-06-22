@@ -90,6 +90,33 @@ const WORKSPACE_TAB_STORAGE_PREFIX = 'halo_patientWorkspaceTab_v1:';
 
 type WorkspaceTab = 'overview' | 'notes' | 'chat';
 
+function localIsoDate(date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function consultationKeyFor(patientId: string, date = localIsoDate()): string {
+  return `${patientId}:${date}`;
+}
+
+function noteConsultationDate(note: HaloNote): string | undefined {
+  if (note.consultationDate) return note.consultationDate;
+  if (!note.createdAt) return undefined;
+  const d = new Date(note.createdAt);
+  if (Number.isNaN(d.getTime())) return undefined;
+  return localIsoDate(d);
+}
+
+function noteMatchesConsultation(note: HaloNote, patientId: string, date: string, templateId: string): boolean {
+  const key = consultationKeyFor(patientId, date);
+  return (
+    note.template_id === templateId &&
+    (note.consultationKey === key || (!note.consultationKey && noteConsultationDate(note) === date))
+  );
+}
+
 async function persistWorkspaceDraftNow(params: {
   patientId: string;
   draft: PatientEditorDraft | null;
@@ -140,6 +167,8 @@ function safeParseDraft(raw: string | null): { savedAt: number; draft: PatientEd
         activeNoteIndex: typeof d.activeNoteIndex === 'number' ? d.activeNoteIndex : 0,
         selectedTemplatesForGenerate: Array.isArray(d.selectedTemplatesForGenerate) ? d.selectedTemplatesForGenerate : [DEFAULT_HALO_TEMPLATE_ID],
         templateId: typeof d.templateId === 'string' ? d.templateId : DEFAULT_HALO_TEMPLATE_ID,
+        openConsultationDate: typeof d.openConsultationDate === 'string' ? d.openConsultationDate : undefined,
+        openConsultationKey: typeof d.openConsultationKey === 'string' ? d.openConsultationKey : undefined,
       },
     };
   } catch {
@@ -421,6 +450,8 @@ export const PatientWorkspace: React.FC<Props> = ({
     activeNoteIndex,
     selectedTemplatesForGenerate: [workspaceGenTemplateId],
     templateId: workspaceGenTemplateId,
+    openConsultationDate: localIsoDate(),
+    openConsultationKey: consultationKeyFor(patient.id),
   };
 
   // File viewer state
@@ -626,6 +657,8 @@ export const PatientWorkspace: React.FC<Props> = ({
   const createTargetNote = useCallback(
     async (templateId: string): Promise<HaloNote> => {
       const createdAt = new Date().toISOString();
+      const consultationDate = localIsoDate();
+      const consultationKey = consultationKeyFor(patient.id, consultationDate);
       const label =
         templateId === ECHO_TEMPLATE_ID
           ? 'Echo Report'
@@ -641,22 +674,12 @@ export const PatientWorkspace: React.FC<Props> = ({
         title: `${label} ${formatDocumentDateDisplay()}`,
         content: '',
         template_id: templateId,
+        consultationDate,
+        consultationKey,
         createdAt,
         lastSavedAt: createdAt,
         dirty: true,
       };
-
-      // Best-effort: create a visible patient notes folder for today in Drive.
-      // This does not affect editor state if it fails.
-      try {
-        const folderName = `Patient Notes - ${new Date().toISOString().slice(0, 10)}`;
-        await createFolder(patient.id, folderName);
-        if (activeTab === 'overview') {
-          await loadFolderContents(currentFolderId);
-        }
-      } catch {
-        /* ignore */
-      }
 
       setNotes((prev) => {
         const newIdx = prev.length;
@@ -667,7 +690,7 @@ export const PatientWorkspace: React.FC<Props> = ({
       setWorkspaceTab('notes');
       return note;
     },
-    [activeTab, currentFolderId, loadFolderContents, patient.id]
+    [patient.id, setWorkspaceTab]
   );
 
   const handleQuickAddChooseTemplate = useCallback((templateId: string) => {
@@ -959,6 +982,8 @@ export const PatientWorkspace: React.FC<Props> = ({
       activeNoteIndex,
       selectedTemplatesForGenerate: [workspaceGenTemplateId],
       templateId: workspaceGenTemplateId,
+      openConsultationDate: localIsoDate(),
+      openConsultationKey: consultationKeyFor(activeDraftPatientIdRef.current),
     };
     persistDraftToStorage(activeDraftPatientIdRef.current, {
       pendingTranscript,
@@ -966,6 +991,8 @@ export const PatientWorkspace: React.FC<Props> = ({
       activeNoteIndex,
       selectedTemplatesForGenerate: [workspaceGenTemplateId],
       templateId: workspaceGenTemplateId,
+      openConsultationDate: localIsoDate(),
+      openConsultationKey: consultationKeyFor(activeDraftPatientIdRef.current),
     });
   }, [pendingTranscript, notes, activeNoteIndex, workspaceGenTemplateId, userEmail, persistDraftToStorage]);
 
@@ -1310,6 +1337,8 @@ export const PatientWorkspace: React.FC<Props> = ({
       activeNoteIndex,
       selectedTemplatesForGenerate: [workspaceGenTemplateId],
       templateId: workspaceGenTemplateId,
+      openConsultationDate: localIsoDate(),
+      openConsultationKey: consultationKeyFor(pid),
     };
     if (!draftHasContent(draftPayload)) return;
     const t = window.setTimeout(() => {
@@ -1462,18 +1491,30 @@ export const PatientWorkspace: React.FC<Props> = ({
       const targetNote =
         targetId ? notesRef.current.find((n) => n.noteId === targetId) : null;
       const templateForRun = targetNote?.template_id || workspaceGenTemplateIdRef.current;
+      const consultationDate = localIsoDate();
+      const consultationKey = consultationKeyFor(generationPatientId, consultationDate);
+      const sameDayNote = notesRef.current.find((n) =>
+        noteMatchesConsultation(n, generationPatientId, consultationDate, templateForRun)
+      );
       const chartReference = buildPatientDemographicsForNoteInput(generationPatient);
       try {
         await persistWorkspaceDraftNow({
           patientId: generationPatientId,
           draft: latestWorkspaceRef.current
-            ? { ...latestWorkspaceRef.current, pendingTranscript: rawDictation }
+            ? {
+                ...latestWorkspaceRef.current,
+                pendingTranscript: rawDictation,
+                openConsultationDate: consultationDate,
+                openConsultationKey: consultationKey,
+              }
             : {
                 pendingTranscript: rawDictation,
                 notes: notesRef.current,
                 activeNoteIndex,
                 selectedTemplatesForGenerate: [workspaceGenTemplateIdRef.current],
                 templateId: workspaceGenTemplateIdRef.current,
+                openConsultationDate: consultationDate,
+                openConsultationKey: consultationKey,
               },
         });
         const raw = await generateClinicalNoteWithGemini({
@@ -1495,7 +1536,8 @@ export const PatientWorkspace: React.FC<Props> = ({
               ? 'Angiogram Report'
               : workspaceGenerationTemplateLabel(templateForRun);
 
-        // If there is an active "new note" target that is still empty, fill it instead of creating a duplicate.
+        // Same patient + same local day stays one open consultation.
+        // Fill an explicit empty target first; otherwise update today's existing note for this template.
         const targetIsEmpty = !!(targetNote && !buildNotePlainText(targetNote).trim());
         let noteToPreview: HaloNote;
         if (targetNote && targetIsEmpty) {
@@ -1505,10 +1547,29 @@ export const PatientWorkspace: React.FC<Props> = ({
             content,
             docxMerge,
             template_id: templateForRun,
+            consultationDate,
+            consultationKey,
             lastSavedAt: createdAt,
             dirty: false,
           };
           setNotes((prev) => prev.map((n) => (n.noteId === targetNote.noteId ? updated : n)));
+          noteToPreview = updated;
+        } else if (sameDayNote) {
+          const updated: HaloNote = {
+            ...sameDayNote,
+            content,
+            docxMerge,
+            template_id: templateForRun,
+            consultationDate,
+            consultationKey,
+            lastSavedAt: createdAt,
+            dirty: false,
+          };
+          setNotes((prev) => {
+            const idx = prev.findIndex((n) => n.noteId === sameDayNote.noteId);
+            if (idx >= 0) setActiveNoteIndex(idx);
+            return prev.map((n) => (n.noteId === sameDayNote.noteId ? updated : n));
+          });
           noteToPreview = updated;
         } else {
           const note: HaloNote = {
@@ -1517,6 +1578,8 @@ export const PatientWorkspace: React.FC<Props> = ({
             content,
             docxMerge,
             template_id: templateForRun,
+            consultationDate,
+            consultationKey,
             createdAt,
             lastSavedAt: createdAt,
             dirty: false,
@@ -1530,38 +1593,10 @@ export const PatientWorkspace: React.FC<Props> = ({
         }
 
         generationTargetNoteIdRef.current = null;
-        if (pendingWorkspaceGenQueueRef.current.length === 0) {
-          setPendingTranscript(null);
-          pendingTranscriptRef.current = null;
-        }
-
-        const plainForDrive = buildNotePlainText(noteToPreview);
-        setDocxTask({ phase: 'running', message: 'Saving note to Patient Notes…' });
-        try {
-          await saveNoteAsDocx({
-            patientId: generationPatientId,
-            template_id: noteToPreview.template_id || workspaceGenTemplateIdRef.current,
-            text: docxTextForNote(generationPatient, noteToPreview),
-            mergeFields: noteToPreview.docxMerge,
-            fileName: sanitizeDocxFileBase(noteToPreview.title || `${label} note`) || undefined,
-            patientChart: generationPatient,
-          });
-          if (patientRef.current.id !== generationPatientId) return;
-          await loadFolderContents(currentFolderId);
-          onDataChange();
-          setDocxTask({ phase: 'success', message: 'DOCX saved to Patient Notes' });
-          onToast(
-            `${label} note generated and saved for this patient in Google Drive (Patient Notes / DOCX).`,
-            'success'
-          );
-        } catch (saveErr) {
-          if (patientRef.current.id !== generationPatientId) return;
-          setDocxTask({ phase: 'error', message: getErrorMessage(saveErr) });
-          onToast(
-            `${label} note is in the editor, but saving the Word file to Google Drive failed: ${getErrorMessage(saveErr)}. Use Save (DOCX) to retry.`,
-            'error'
-          );
-        }
+        pendingTranscriptRef.current = rawDictation;
+        setPendingTranscript(rawDictation);
+        setDocxTask({ phase: 'idle' });
+        onToast(`${label} updated for this consultation. Use Save (DOCX) when ready.`, 'success');
 
         suppressDebouncedPdfRefreshRef.current = true;
         try {

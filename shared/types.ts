@@ -91,6 +91,10 @@ export interface HaloNote {
   title: string;
   content: string;
   template_id: string;
+  /** Local YYYY-MM-DD consultation date used to append same-patient/same-day dictations. */
+  consultationDate?: string;
+  /** Stable grouping key: `${patientId}:${consultationDate}`. */
+  consultationKey?: string;
   /** ISO timestamp when the note was first created (stable tab date). */
   createdAt?: string;
   lastSavedAt?: string;

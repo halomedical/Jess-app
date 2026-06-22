@@ -7,6 +7,17 @@ export function inAppPatientMirrorKey(patientId: string): string {
   return `${PREFIX}${patientId}`;
 }
 
+function localIsoDate(date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function consultationKeyFor(patientId: string, date = localIsoDate()): string {
+  return `${patientId}:${date}`;
+}
+
 function emptyDraft(): ClinicalWorkspaceDraft {
   return {
     pendingTranscript: null,
@@ -14,6 +25,8 @@ function emptyDraft(): ClinicalWorkspaceDraft {
     activeNoteIndex: 0,
     selectedTemplatesForGenerate: [DEFAULT_HALO_TEMPLATE_ID],
     templateId: DEFAULT_HALO_TEMPLATE_ID,
+    openConsultationDate: localIsoDate(),
+    openConsultationKey: '',
   };
 }
 
@@ -47,6 +60,9 @@ export function mergeTranscriptIntoInAppMirrorDraft(patientId: string, transcrip
     } else {
       draft = emptyDraft();
     }
+    const today = localIsoDate();
+    draft.openConsultationDate = today;
+    draft.openConsultationKey = consultationKeyFor(patientId, today);
     const prev = draft.pendingTranscript?.trim();
     draft.pendingTranscript = prev ? `${prev}\n\n${chunk}` : chunk;
     localStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), draft }));

@@ -38,6 +38,10 @@ export interface ClinicalWorkspaceDraft {
   activeNoteIndex: number;
   selectedTemplatesForGenerate: string[];
   templateId: string;
+  /** Local YYYY-MM-DD date for the currently open consultation. */
+  openConsultationDate?: string;
+  /** Stable grouping key for same-patient/same-day appending. */
+  openConsultationKey?: string;
 }
 
 export interface ClinicalWorkspaceDraftFile {

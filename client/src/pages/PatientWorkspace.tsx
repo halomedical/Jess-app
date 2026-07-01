@@ -151,6 +151,16 @@ function draftHasContent(d: PatientEditorDraft): boolean {
   return (d.notes?.length ?? 0) > 0 || !!(d.pendingTranscript && d.pendingTranscript.trim());
 }
 
+/** Append a new dictation chunk to existing transcript (never overwrite). */
+function appendTranscriptChunk(existing: string | null | undefined, chunk: string): string {
+  const next = chunk.trim();
+  if (!next) return (existing ?? '').trim();
+  const prev = (existing ?? '').trim();
+  if (!prev) return next;
+  if (prev === next || prev.endsWith(next)) return prev;
+  return `${prev}\n\n${next}`;
+}
+
 function withinDraftTtl(s: ReturnType<typeof safeParseDraft>): boolean {
   return !!(s && Date.now() - s.savedAt <= DRAFT_TTL_MS);
 }
@@ -1164,8 +1174,6 @@ export const PatientWorkspace: React.FC<Props> = ({
 
   /** Isolate workspace editor per patient — must run before draft/transcription hydrate below. */
   useEffect(() => {
-    setPendingTranscript(null);
-    pendingTranscriptRef.current = null;
     setNotes([]);
     setActiveNoteIndex(0);
     generationInFlightRef.current = false;
@@ -1193,49 +1201,34 @@ export const PatientWorkspace: React.FC<Props> = ({
     );
 
     const applyTranscript = (text: string) => {
-      if (!text.trim()) {
+      const trimmedText = text.trim();
+      if (!trimmedText) {
         onToast('No speech detected.', 'info');
         return;
       }
       if (patientRef.current.id !== pid) return;
 
-      const prev = pendingTranscriptRef.current?.trim() ?? '';
-      const trimmedText = text.trim();
-      if (prev === trimmedText) {
-        setWorkspaceTab('notes');
-        return;
-      }
-      const merged = !prev ? trimmedText : `${prev}\n\n${trimmedText}`;
-
+      const merged = appendTranscriptChunk(pendingTranscriptRef.current, trimmedText);
       pendingTranscriptRef.current = merged;
       setPendingTranscript(merged);
       setWorkspaceTab('notes');
-
-      // Auto-generate once this transcription chunk is merged (one listener call per finishAndTranscribe).
-      // queueMicrotask ensures runWorkspaceNoteGenerationRef is set and avoids racing transcriptionNotify.
-      const mergedSnapshot = merged;
-      queueMicrotask(() => {
-        if (patientRef.current.id !== pid) return;
-        if (pendingTranscriptRef.current?.trim() !== mergedSnapshot.trim()) return;
-        if (generationInFlightRef.current) {
-          if (pendingWorkspaceGenQueueRef.current.length < 5) {
-            pendingWorkspaceGenQueueRef.current.push({
-              source: 'auto',
-              dictationSnapshot: mergedSnapshot.trim(),
-            });
-          }
-          return;
-        }
-        const fn = runWorkspaceNoteGenerationRef.current;
-        if (fn) void fn({ source: 'auto' });
-      });
     };
 
     const unsub = scribeSessions.subscribeTranscription(pid, applyTranscript);
     const backlog = scribeSessions.consumeTranscriptionForPatient(pid);
     if (backlog != null) applyTranscript(backlog);
-    return unsub;
-  }, [patient.id, userEmail, scribeSessions.subscribeTranscription, scribeSessions.consumeTranscriptionForPatient, onToast, setWorkspaceTab]);
+    return () => {
+      unsub();
+      const departingPid = activeDraftPatientIdRef.current;
+      const tx = pendingTranscriptRef.current?.trim();
+      if (!departingPid || !tx) return;
+      const draft = latestWorkspaceRef.current ?? patientEditorDraftsRef.current[departingPid];
+      if (!draft) return;
+      const saved: PatientEditorDraft = { ...draft, pendingTranscript: tx };
+      patientEditorDraftsRef.current[departingPid] = saved;
+      persistDraftToStorage(departingPid, saved);
+    };
+  }, [patient.id, userEmail, scribeSessions.subscribeTranscription, scribeSessions.consumeTranscriptionForPatient, onToast, setWorkspaceTab, persistDraftToStorage]);
 
   // Load clinical workspace from Google Drive (Patient Notes / __Halo_clinical_workspace.json) — source of truth across devices
   useEffect(() => {

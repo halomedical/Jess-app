@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/requireAuth';
 import { generateText, generateTextStream, analyzeImage, safeJsonParse } from '../services/gemini';
 import { fetchAllFilesInFolder, extractTextFromFile } from '../services/drive';
+import { buildClientClinicalNotePrompt } from '../../shared/buildClientClinicalNotePrompt';
 import {
   summaryPrompt,
   labAlertsPrompt,
@@ -91,6 +92,46 @@ router.post('/lab-alerts', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Lab alerts error:', err);
     res.json([]);
+  }
+});
+
+// POST /generate — secure backend Gemini note generation for the workspace Generate button.
+router.post('/generate', async (req: Request, res: Response) => {
+  try {
+    const { transcriptionText, templateId, chartReference } = req.body as {
+      transcriptionText?: string;
+      templateId?: string;
+      chartReference?: string;
+    };
+
+    if (!transcriptionText || typeof transcriptionText !== 'string' || !transcriptionText.trim()) {
+      res.status(400).json({ error: 'transcriptionText is required.' });
+      return;
+    }
+
+    if (!templateId || typeof templateId !== 'string') {
+      res.status(400).json({ error: 'templateId is required.' });
+      return;
+    }
+
+    const prompt = buildClientClinicalNotePrompt(
+      transcriptionText,
+      templateId,
+      typeof chartReference === 'string' ? chartReference : undefined
+    );
+    const note = await generateText(prompt);
+    res.json({ note: note.trim() });
+  } catch (err) {
+    console.error('Workspace note generation error:', err);
+    const detail = err instanceof Error ? err.message : String(err);
+    res.status(500).json({
+      error:
+        detail.trim().length > 0
+          ? detail.length > 700
+            ? `${detail.slice(0, 700)}…`
+            : detail
+          : 'Could not generate note.',
+    });
   }
 });
 
